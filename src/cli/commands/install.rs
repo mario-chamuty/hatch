@@ -25,14 +25,9 @@ pub async fn _execute_with_options_old(profile: Option<String>, relax_constraint
         if let Ok(lockfile) = LockfileParser::parse(lockfile_path) {
             // Quick check if we can use the lockfile
             let manifest = ManifestParser::parse_with_overrides(
-                "hatch.yaml",
-                Some("hatch.local.yaml"),
-            ).or_else(|_| {
-                ManifestParser::parse_with_overrides(
-                    "hatch.json",
-                    Some("hatch.local.json"),
-                )
-            })?;
+                "hatch.json",
+                Some("hatch.local.json"),
+            )?;
 
             if lockfile.flutter_version == manifest.sdk.flutter &&
                lockfile.dart_version == manifest.sdk.dart {
@@ -53,14 +48,9 @@ pub async fn execute_full(profile: Option<String>, relax_constraints: bool, forc
     // Step 1: Parse hatch.yaml/json manifest
     println!("📄 Parsing manifest...");
     let manifest = ManifestParser::parse_with_overrides(
-        "hatch.yaml",
-        Some("hatch.local.yaml"),
-    ).or_else(|_| {
-        ManifestParser::parse_with_overrides(
-            "hatch.json",
-            Some("hatch.local.json"),
-        )
-    }).map_err(|e| anyhow!("Failed to parse manifest: {}", e))?;
+        "hatch.json",
+        Some("hatch.local.json"),
+    ).map_err(|e| anyhow!("Failed to parse manifest: {}", e))?;
 
     ScriptRunner::run_pre_install(&manifest)?;
     ScriptRunner::run_profile_scripts(&manifest, &profile_name, "pre-install")?;

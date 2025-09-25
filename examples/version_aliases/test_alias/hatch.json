@@ -1,0 +1,28 @@
+{
+  "name": "test_alias_app",
+  "description": "Test app with Composer-style version aliasing",
+
+  "sdk": {
+    "flutter": "3.35.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+
+  "require": {
+    "cupertino_icons": "^1.0.2",
+    "provider": "^6.0.0",
+    "http": "^1.5.0",
+    "path": "^1.9.0"
+  },
+
+  // Composer-style version aliasing
+  "overrides": {
+    // Use older path version but pretend it's newer
+    "path": "1.8.3 as 1.9.5",
+
+    // Use latest collection but pretend it's an older version
+    "collection": "dev-main as 1.15.0",
+
+    // Use a local fork but pretend it's the official version
+    "http": "path:../http_fork as 1.5.0"
+  }
+}

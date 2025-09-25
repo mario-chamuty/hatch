@@ -1,0 +1,57 @@
+{
+  "name": "scripts_test_app",
+  "description": "Testing Hatch scripts and lifecycle hooks",
+
+  "sdk": {
+    "flutter": "3.35.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+
+  "require": {
+    "http": "^1.0.0"
+  },
+
+  // User-defined scripts
+  "scripts": {
+    "hello": "echo Hello from Hatch scripts!",
+    "build": "echo Building the project...",
+    "test": "echo Running tests...",
+    "clean": "echo Cleaning build artifacts...",
+    "info": {
+      "command": "echo Project info: scripts_test_app",
+      "description": "Display project information"
+    },
+
+    // Lifecycle hooks
+    "pre-install": "echo [PRE-INSTALL] Preparing for installation...",
+    "post-install": "echo [POST-INSTALL] Installation completed!",
+    "pre-build": "echo [PRE-BUILD] Preparing build environment...",
+    "post-build": "echo [POST-BUILD] Build finished!",
+
+    // Complex scripts
+    "multi": "echo Step 1 && echo Step 2 && echo Step 3",
+    "fail-test": "echo This will fail && exit 1",
+
+    // Platform-specific
+    "list-files": "dir /b || ls -la",
+
+    // Test argument passing
+    "args-test": "bash test_args.sh"
+  },
+
+  // Profile-specific scripts
+  "profiles": {
+    "dev": {
+      "scripts": {
+        "pre-install": "echo [DEV PROFILE] Setting up development environment...",
+        "post-install": "echo [DEV PROFILE] Dev setup complete!"
+      }
+    },
+    "production": {
+      "scripts": {
+        "pre-build": "echo [PRODUCTION] Optimizing for production...",
+        "post-build": "echo [PRODUCTION] Production build ready!"
+      }
+    }
+  }
+}

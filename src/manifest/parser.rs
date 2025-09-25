@@ -1,41 +1,44 @@
 use anyhow::{anyhow, Context, Result};
 use std::path::Path;
+use regex::Regex;
 
 use super::schema::HatchManifest;
 
-/// Manifest parser for both YAML and JSON formats
 pub struct ManifestParser;
 
 impl ManifestParser {
-    /// Parse manifest from file path, auto-detecting format
     pub fn parse_from_file<P: AsRef<Path>>(path: P) -> Result<HatchManifest> {
         let path = path.as_ref();
+
+        // Only support hatch.json
+        if !path.file_name().map_or(false, |n| n == "hatch.json") {
+            return Err(anyhow!("Manifest must be named 'hatch.json'. YAML format is no longer supported."));
+        }
+
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read manifest file: {}", path.display()))?;
 
-        match path.extension().and_then(|ext| ext.to_str()) {
-            Some("yaml") | Some("yml") => Self::parse_yaml(&content),
-            Some("json") => Self::parse_json(&content),
-            _ => {
-                // Try YAML first, then JSON
-                Self::parse_yaml(&content).or_else(|_| Self::parse_json(&content))
-            }
-        }
+        Self::parse_json(&content)
     }
 
-    /// Parse YAML manifest
-    pub fn parse_yaml(content: &str) -> Result<HatchManifest> {
-        serde_yaml::from_str(content)
-            .with_context(|| "Failed to parse YAML manifest")
-    }
-
-    /// Parse JSON manifest
     pub fn parse_json(content: &str) -> Result<HatchManifest> {
-        serde_json::from_str(content)
+        // Strip // comments to support JSON with comments
+        let content = Self::strip_json_comments(content);
+
+        serde_json::from_str(&content)
             .with_context(|| "Failed to parse JSON manifest")
     }
 
-    /// Parse manifest with local overrides merged
+    fn strip_json_comments(content: &str) -> String {
+        let re = Regex::new(r"//[^
+]*").unwrap();
+        let content = re.replace_all(content, "");
+
+        // Also remove /* */ style comments
+        let re = Regex::new(r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/").unwrap();
+        re.replace_all(&content, "").to_string()
+    }
+
     pub fn parse_with_overrides<P: AsRef<Path>>(
         manifest_path: P,
         local_override_path: Option<P>,
@@ -121,25 +124,6 @@ impl ManifestParser {
         base
     }
 
-    /// Create a default manifest template
-    pub fn create_default_yaml() -> String {
-        r#"name: my_flutter_app
-description: A new Flutter app
-version: 1.0.0
-
-sdk:
-  flutter: "3.24.2"
-  dart: ">=3.5.0 <4.0.0"
-
-require:
-  flutter: "{ \"sdk\": \"flutter\" }"
-
-require-dev:
-  flutter_test: "{ \"sdk\": \"flutter\" }"
-"#.to_string()
-    }
-
-    /// Create a default manifest template in JSON
     pub fn create_default_json() -> String {
         r#"{
   "name": "my_flutter_app",
@@ -149,15 +133,14 @@ require-dev:
     "flutter": "3.24.2",
     "dart": ">=3.5.0 <4.0.0"
   },
+  // Core dependencies
   "require": {
-    "flutter": {
-      "sdk": "flutter"
-    }
+    // Add your dependencies here
   },
+
+  // Development dependencies
   "require-dev": {
-    "flutter_test": {
-      "sdk": "flutter"
-    }
+    // Add dev dependencies here
   }
 }"#.to_string()
     }

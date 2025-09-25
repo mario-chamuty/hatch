@@ -15,14 +15,9 @@ pub async fn execute(package: String, version: Option<String>, dev: bool) -> Res
     println!("📎 Adding {} dependency '{}@{}'", dep_type, package, version_str);
 
     let mut manifest = ManifestParser::parse_with_overrides(
-        "hatch.yaml",
-        Some("hatch.local.yaml"),
-    ).or_else(|_| {
-        ManifestParser::parse_with_overrides(
-            "hatch.json",
-            Some("hatch.local.json"),
-        )
-    })?;
+        "hatch.json",
+        Some("hatch.local.json"),
+    )?;
 
     let registry = PubDevRegistry::new();
     let package_exists = registry.package_exists(&package).await?;
@@ -59,8 +54,8 @@ pub async fn execute(package: String, version: Option<String>, dev: bool) -> Res
         manifest.require.as_mut().unwrap().insert(package.clone(), constraint);
     }
 
-    let manifest_content = serde_yaml::to_string(&manifest)?;
-    std::fs::write("hatch.yaml", manifest_content)?;
+    let manifest_content = serde_json::to_string_pretty(&manifest)?;
+    std::fs::write("hatch.json", manifest_content)?;
 
     println!("✅ Dependency '{}' added successfully", package);
 

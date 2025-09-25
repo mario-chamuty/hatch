@@ -1,0 +1,58 @@
+{
+  "name": "complex_app",
+  "description": "Example with complex dependency resolution",
+
+  "sdk": {
+    "flutter": "3.35.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+
+  // Core application dependencies
+  "require": {
+    "flutter_bloc": "^8.1.0",
+    "dio": "^5.3.0",
+    "shared_preferences": "^2.2.0",
+    "json_annotation": "^4.8.0",
+    "freezed_annotation": "^2.4.0"
+  },
+
+  // Development dependencies
+  "require-dev": {
+    "build_runner": "^2.4.0",
+    "json_serializable": "^6.7.0",
+    "freezed": "^2.4.0",
+    "flutter_test": {"sdk": "flutter"}
+  },
+
+  // Environment-specific profiles
+  "profiles": {
+    "production": {
+      "require": {
+        "sentry_flutter": "^7.10.0"
+      }
+    },
+    "dev": {
+      "require": {
+        "flutter_dotenv": "^5.1.0",
+        "logger": "^2.0.0"
+      }
+    }
+  },
+
+  // Build and development scripts
+  "scripts": {
+    "generate": "flutter pub run build_runner build --delete-conflicting-outputs",
+    "watch": "flutter pub run build_runner watch",
+    "test": "flutter test",
+    "analyze": "flutter analyze"
+  },
+
+  // Handle version conflicts with aliasing
+  "overrides": {
+    // Force specific analyzer version to resolve conflicts
+    "analyzer": "5.13.0 as 6.0.0",
+
+    // Use older collection that's compatible with all deps
+    "collection": "1.17.2 as 1.18.0"
+  }
+}

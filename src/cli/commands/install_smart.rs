@@ -16,14 +16,9 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
 
     println!("📄 Parsing manifest...");
     let manifest = ManifestParser::parse_with_overrides(
-        "hatch.yaml",
-        Some("hatch.local.yaml"),
-    ).or_else(|_| {
-        ManifestParser::parse_with_overrides(
-            "hatch.json",
-            Some("hatch.local.json"),
-        )
-    })?;
+        "hatch.json",
+        Some("hatch.local.json"),
+    )?;
 
     ScriptRunner::run_pre_install(&manifest)?;
     ScriptRunner::run_profile_scripts(&manifest, &profile_name, "pre-install")?;
