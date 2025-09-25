@@ -1,0 +1,83 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Hatch specific
+hatch.lock
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.log
+
+# Test artifacts
+examples/**/hatch.lock
+examples/**/.dart_tool/
+examples/**/.packages
+examples/**/build/
+examples/**/*.log
+
+# Local override files
+hatch.local.yaml
+hatch.local.json
+**/hatch.local.yaml
+**/hatch.local.json
+
+# Package cache (for development)
+.hatch/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editor backups
+*.bak
+*.backup
+*~
+
+# Python (if using any scripts)
+__pycache__/
+*.pyc
+*.pyo
+
+# Documentation build
+/docs/_build/
+/docs/.doctrees/
+
+# Coverage reports
+*.lcov
+coverage/
+
+# Debugging
+*.stackdump
+core.*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Node (if frontend tools are added later)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

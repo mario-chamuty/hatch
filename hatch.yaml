@@ -1,0 +1,15 @@
+name: test-hatch-project
+description: A new Flutter app
+version: 1.0.0
+
+sdk:
+  flutter: "3.24.2"
+  dart: ">=3.5.0 <4.0.0"
+
+require:
+  flutter:
+    sdk: flutter
+
+require-dev:
+  flutter_test:
+    sdk: flutter

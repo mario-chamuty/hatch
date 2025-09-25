@@ -1,0 +1,73 @@
+[package]
+name = "hatch"
+version = "0.1.0"
+edition = "2021"
+authors = ["Hatch Contributors"]
+description = "Next-Gen Dependency and Build Manager for Flutter"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hatch-dev/hatch"
+keywords = ["flutter", "dependency-management", "build-tools", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "hatch"
+path = "src/main.rs"
+
+[dependencies]
+# CLI and argument parsing
+clap = { version = "4.4", features = ["derive", "color", "suggestions"] }
+
+# Serialization and data handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Async runtime and HTTP client
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Version and dependency management
+semver = { version = "1.0", features = ["serde"] }
+
+# File system and path handling
+dirs = "5.0"
+walkdir = "2.4"
+
+# Error handling and logging
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.10"
+
+# Terminal UI and progress
+indicatif = "0.17"
+console = "0.15"
+colored = "2.0"
+
+# Configuration and caching
+config = "0.13"
+serde_derive = "1.0"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+async-trait = "0.1.89"
+
+# Compression and archive handling
+flate2 = "1.0"
+tar = "0.4"
+sha2 = "0.10"
+futures-util = "0.3"
+
+[dev-dependencies]
+tempfile = "3.8"
+assert_cmd = "2.0"
+predicates = "3.0"
+wiremock = "0.5"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

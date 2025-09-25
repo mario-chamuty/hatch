@@ -1,0 +1,11 @@
+dependencies:
+  flutter:
+    sdk: flutter
+description: A test Flutter app for Hatch
+environment:
+  flutter: 3.35.2
+  sdk: '>=3.5.0 <4.0.0'
+flutter:
+  uses-material-design: true
+name: test_flutter_app
+version: 1.0.0
