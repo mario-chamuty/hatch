@@ -1,10 +1,19 @@
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use serde_yaml::Value;
+use serde_json;
 use colored::Colorize;
 
 use crate::manifest::schema::{HatchManifest, SdkConstraints};
+
+#[derive(Debug, serde::Deserialize)]
+struct FvmConfig {
+    #[serde(rename = "flutterSdkVersion")]
+    flutter_sdk_version: Option<String>,
+    #[serde(rename = "flavors")]
+    flavors: Option<HashMap<String, String>>,
+}
 
 pub async fn execute(pubspec_path: Option<String>, output_path: Option<String>) -> Result<()> {
     println!("🔄 {} from pubspec.yaml to hatch.json", "Migrating".cyan().bold());
@@ -16,6 +25,20 @@ pub async fn execute(pubspec_path: Option<String>, output_path: Option<String>) 
         return Err(anyhow::anyhow!("pubspec.yaml not found at: {}", pubspec_path));
     }
 
+    // Detect FVM
+    let project_dir = Path::new(&pubspec_path).parent().unwrap_or(Path::new("."));
+    let fvm_config_path = project_dir.join(".fvm").join("fvm_config.json");
+    let fvm_config = if fvm_config_path.exists() {
+        println!("🎯 FVM detected in project");
+        let config_content = std::fs::read_to_string(&fvm_config_path)
+            .context("Failed to read FVM config")?;
+        let config: FvmConfig = serde_json::from_str(&config_content)
+            .context("Failed to parse FVM config")?;
+        Some(config)
+    } else {
+        None
+    };
+
     println!("📖 Reading {}...", pubspec_path);
     let pubspec_content = std::fs::read_to_string(&pubspec_path)
         .context("Failed to read pubspec.yaml")?;
@@ -23,7 +46,8 @@ pub async fn execute(pubspec_path: Option<String>, output_path: Option<String>) 
     let pubspec: serde_yaml::Value = serde_yaml::from_str(&pubspec_content)
         .context("Failed to parse pubspec.yaml")?;
 
-    let hatch_manifest = convert_pubspec_to_hatch(pubspec)?;
+    let has_fvm = fvm_config.is_some();
+    let hatch_manifest = convert_pubspec_to_hatch(pubspec, fvm_config)?;
 
     let hatch_json = serde_json::to_string_pretty(&hatch_manifest)?;
 
@@ -62,10 +86,15 @@ pub async fn execute(pubspec_path: Option<String>, output_path: Option<String>) 
     }
 
     if let Some(flutter) = &hatch_manifest.sdk.flutter {
-        println!("   Flutter SDK: {}", flutter.green());
+        let fvm_marker = if has_fvm { " (via FVM)" } else { "" };
+        println!("   Flutter SDK: {}{}", flutter.green(), fvm_marker.yellow());
     }
     if let Some(dart) = &hatch_manifest.sdk.dart {
         println!("   Dart SDK: {}", dart.green());
+    }
+
+    if has_fvm {
+        println!("   {} FVM integration enabled", "✓".green().bold());
     }
 
     println!("\n💡 Next steps:");
@@ -76,24 +105,35 @@ pub async fn execute(pubspec_path: Option<String>, output_path: Option<String>) 
     Ok(())
 }
 
-fn convert_pubspec_to_hatch(pubspec: Value) -> Result<HatchManifest> {
+fn convert_pubspec_to_hatch(pubspec: Value, fvm_config: Option<FvmConfig>) -> Result<HatchManifest> {
     // Extract SDK constraints first
     let sdk = if let Some(environment) = pubspec.get("environment") {
         SdkConstraints {
             dart: extract_string(environment, "sdk"),
-            flutter: extract_string(environment, "flutter").or_else(|| {
-                // Check if using Flutter SDK
-                if pubspec.get("dependencies").and_then(|d| d.get("flutter")).is_some() {
-                    Some("stable".to_string())
-                } else {
-                    None
-                }
-            }),
+            flutter: if let Some(fvm) = &fvm_config {
+                // Use FVM version if available
+                fvm.flutter_sdk_version.clone().or_else(|| {
+                    extract_string(environment, "flutter")
+                })
+            } else {
+                extract_string(environment, "flutter").or_else(|| {
+                    // Check if using Flutter SDK
+                    if pubspec.get("dependencies").and_then(|d| d.get("flutter")).is_some() {
+                        Some("stable".to_string())
+                    } else {
+                        None
+                    }
+                })
+            },
         }
     } else {
         SdkConstraints {
             dart: Some(">=3.0.0 <4.0.0".to_string()),
-            flutter: Some("stable".to_string()),
+            flutter: if let Some(fvm) = &fvm_config {
+                fvm.flutter_sdk_version.clone().or(Some("stable".to_string()))
+            } else {
+                Some("stable".to_string())
+            },
         }
     };
 
@@ -189,13 +229,27 @@ fn convert_pubspec_to_hatch(pubspec: Value) -> Result<HatchManifest> {
         }
     }
 
-    // Add common Flutter scripts
+    // Add common Flutter scripts (use FVM if detected)
+    let flutter_cmd = if fvm_config.is_some() {
+        "fvm flutter"
+    } else {
+        "flutter"
+    };
+
+    let dart_cmd = if fvm_config.is_some() {
+        "fvm dart"
+    } else {
+        "dart"
+    };
+
     let mut scripts = HashMap::new();
-    scripts.insert("test".to_string(), serde_json::json!("flutter test"));
-    scripts.insert("build".to_string(), serde_json::json!("flutter build"));
-    scripts.insert("clean".to_string(), serde_json::json!("flutter clean"));
-    scripts.insert("analyze".to_string(), serde_json::json!("flutter analyze"));
-    scripts.insert("format".to_string(), serde_json::json!("dart format ."));
+    scripts.insert("test".to_string(), serde_json::json!(format!("{} test", flutter_cmd)));
+    scripts.insert("build".to_string(), serde_json::json!(format!("{} build", flutter_cmd)));
+    scripts.insert("clean".to_string(), serde_json::json!(format!("{} clean", flutter_cmd)));
+    scripts.insert("analyze".to_string(), serde_json::json!(format!("{} analyze", flutter_cmd)));
+    scripts.insert("format".to_string(), serde_json::json!(format!("{} format .", dart_cmd)));
+    scripts.insert("pub-get".to_string(), serde_json::json!(format!("{} pub get", flutter_cmd)));
+    scripts.insert("run".to_string(), serde_json::json!(format!("{} run", flutter_cmd)));
     manifest.scripts = Some(scripts);
 
     Ok(manifest)

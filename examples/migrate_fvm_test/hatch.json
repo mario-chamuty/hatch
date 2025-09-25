@@ -1,0 +1,32 @@
+{
+  "name": "fvm_test_app",
+  "description": "A Flutter app using FVM for version management",
+  "version": "1.2.3+10",
+  "sdk": {
+    "flutter": "3.16.9",
+    "dart": ">=3.2.0 <4.0.0"
+  },
+  "require": {
+    "cupertino_icons": "^1.0.6",
+    "provider": "^6.1.1",
+    "http": "^1.1.0"
+  },
+  "require-dev": {
+    "flutter_lints": "^3.0.1"
+  },
+  "profiles": null,
+  "submodules": null,
+  "repositories": null,
+  "build": null,
+  "scripts": {
+    "test": "fvm flutter test",
+    "build": "fvm flutter build",
+    "analyze": "fvm flutter analyze",
+    "pub-get": "fvm flutter pub get",
+    "run": "fvm flutter run",
+    "clean": "fvm flutter clean",
+    "format": "fvm dart format ."
+  },
+  "overrides": null,
+  "local-packages": null
+}
