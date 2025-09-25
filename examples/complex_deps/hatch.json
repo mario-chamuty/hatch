@@ -20,8 +20,7 @@
   "require-dev": {
     "build_runner": "^2.4.0",
     "json_serializable": "^6.7.0",
-    "freezed": "^2.4.0",
-    "flutter_test": {"sdk": "flutter"}
+    "freezed": "^2.4.0"
   },
 
   // Environment-specific profiles

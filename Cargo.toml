@@ -71,3 +71,13 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[package.metadata.winres]
+OriginalFilename = "hatch.exe"
+ProductName = "Hatch"
+FileDescription = "Next-Gen Dependency and Build Manager for Flutter"
+LegalCopyright = "Copyright © 2025"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+image = "0.24"

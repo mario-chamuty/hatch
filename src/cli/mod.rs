@@ -7,7 +7,7 @@ pub mod args;
 #[command(name = "hatch")]
 #[command(about = "Next-Gen Dependency and Build Manager for Flutter")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(long_about = None)]
+#[command(long_about = "Hatch - The unified toolchain Flutter has been missing.\nSmarter dependency management, automatic builds, and team-wide version sync.")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -125,6 +125,8 @@ pub enum Commands {
         #[command(subcommand)]
         subcommand: BuildsCommands,
     },
+    /// Show version information
+    Version,
 }
 
 #[derive(Subcommand)]

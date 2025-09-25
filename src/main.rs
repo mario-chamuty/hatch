@@ -16,6 +16,7 @@ mod pubspec;
 mod cache;
 mod lockfile;
 mod scripts;
+mod branding;
 
 use cli::{Cli, Commands};
 
@@ -66,6 +67,9 @@ async fn main() -> Result<()> {
         }
         Commands::Builds { subcommand } => {
             cli::commands::builds::execute(subcommand).await
+        }
+        Commands::Version => {
+            cli::commands::version::execute().await
         }
     }
 }
