@@ -18,13 +18,23 @@ mod lockfile;
 mod scripts;
 mod branding;
 
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, verbosity, CacheCommands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
-
     let cli = Cli::parse();
+
+    // Set verbosity level
+    verbosity::set_verbosity(cli.verbose);
+
+    // Initialize logger based on verbosity
+    let log_level = match cli.verbose {
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
     info!("Starting Hatch CLI v{}", env!("CARGO_PKG_VERSION"));
 
@@ -79,6 +89,15 @@ async fn main() -> Result<()> {
                 cli::commands::sdk_update::execute_check().await
             } else {
                 cli::commands::sdk_update::execute(flutter, dart).await
+            }
+        }
+        Commands::Cache { subcommand } => {
+            match subcommand {
+                CacheCommands::Clear { force } => cli::commands::cache::clear(force).await,
+                CacheCommands::Stats => cli::commands::cache::stats().await,
+                CacheCommands::Remove { package, version } => {
+                    cli::commands::cache::remove(&package, version.as_deref()).await
+                }
             }
         }
     }

@@ -8,6 +8,7 @@ use log::{debug, info};
 
 use super::traits::{Registry, PackageMetadata, PackageVersion};
 
+#[derive(Clone)]
 pub struct PubDevRegistry {
     client: Client,
     base_url: String,
@@ -15,8 +16,16 @@ pub struct PubDevRegistry {
 
 impl PubDevRegistry {
     pub fn new() -> Self {
+        // Create client with connection pooling for faster parallel requests
+        let client = Client::builder()
+            .pool_max_idle_per_host(50)
+            .pool_idle_timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
         Self {
-            client: Client::new(),
+            client,
             base_url: "https://pub.dev".to_string(),
         }
     }

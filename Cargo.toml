@@ -53,12 +53,14 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1.10"
 async-trait = "0.1.89"
+once_cell = "1.19"
 
 # Compression and archive handling
 flate2 = "1.0"
 tar = "0.4"
 sha2 = "0.10"
 futures-util = "0.3"
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -1,16 +1,22 @@
 {
   "name": "test_flutter_app",
   "description": "Basic Flutter app with Hatch",
-
+  "version": null,
   "sdk": {
     "flutter": "3.35.2",
     "dart": ">=3.5.0 <4.0.0"
   },
-
-  // Core dependencies
   "require": {
-    "cupertino_icons": "^1.0.2",
     "provider": "^6.0.0",
-    "http": "^1.0.0"
-  }
+    "cupertino_icons": "^1.0.2",
+    "http": "^0.2.7+0"
+  },
+  "require-dev": null,
+  "profiles": null,
+  "submodules": null,
+  "repositories": null,
+  "build": null,
+  "scripts": null,
+  "overrides": null,
+  "local-packages": null
 }

@@ -15,3 +15,4 @@ pub mod builds;
 pub mod version;
 pub mod migrate;
 pub mod sdk_update;
+pub mod cache;

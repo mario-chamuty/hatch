@@ -1,16 +1,45 @@
 use anyhow::{anyhow, Result};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use dirs;
+use std::env;
+use log::{info, debug};
+use once_cell::sync::OnceCell;
+
+static CACHE_ROOT: OnceCell<PathBuf> = OnceCell::new();
 
 /// Manages all cache-related paths
 pub struct CachePaths;
 
 impl CachePaths {
-    /// Get the root cache directory (~/.hatch/cache)
+    /// Get the root cache directory
+    /// Uses HATCH_CACHE_DIR environment variable if set, otherwise ~/.hatch/cache
+    /// This is cached after first call to ensure consistency
     pub fn root() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow!("Could not determine home directory"))?;
-        Ok(home.join(".hatch").join("cache"))
+        // Return cached value if already determined
+        if let Some(path) = CACHE_ROOT.get() {
+            return Ok(path.clone());
+        }
+
+        // Determine cache directory (only done once)
+        let cache_path = if let Ok(cache_dir) = env::var("HATCH_CACHE_DIR") {
+            let path = PathBuf::from(&cache_dir);
+            if !path.is_absolute() {
+                return Err(anyhow!("HATCH_CACHE_DIR must be an absolute path: {}", cache_dir));
+            }
+            info!("Using custom cache directory from HATCH_CACHE_DIR: {}", path.display());
+            path
+        } else {
+            // Fall back to default location
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow!("Could not determine home directory"))?;
+            let default_path = home.join(".hatch").join("cache");
+            debug!("Using default cache directory: {}", default_path.display());
+            default_path
+        };
+
+        // Cache the result
+        CACHE_ROOT.set(cache_path.clone()).unwrap_or(());
+        Ok(cache_path)
     }
 
     /// Get packages directory (~/.hatch/cache/packages)

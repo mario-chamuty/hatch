@@ -1,6 +1,6 @@
 {
-  "name": "cenoid",
-  "description": "A new Flutter project.",
+  "name": "large_app",
+  "description": "A large Flutter application with many dependencies.",
   "version": "1.0.0+1",
   "sdk": {
     "flutter": "stable",

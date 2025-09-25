@@ -16,7 +16,7 @@ pub struct VersionAlias {
 }
 
 impl VersionAlias {
-    fn parse(alias_str: &str) -> Option<Self> {
+    pub fn parse(alias_str: &str) -> Option<Self> {
         // Parse "1.8.3 as 1.9.9" or "dev-main as 2.0.0" or "path:../my-fork as 1.5.0"
         let parts: Vec<&str> = alias_str.split(" as ").collect();
         if parts.len() != 2 {

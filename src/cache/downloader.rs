@@ -5,19 +5,29 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, info};
+use std::time::Instant;
 
 use super::paths::CachePaths;
 use std::path::PathBuf;
+use crate::cli::verbosity;
 
+#[derive(Clone)]
 pub struct PackageDownloader {
     client: Client,
 }
 
 impl PackageDownloader {
     pub fn new() -> Self {
-        Self {
-            client: Client::new(),
-        }
+        // Use aggressive connection pooling for ultra-fast parallel downloads
+        let client = Client::builder()
+            .pool_max_idle_per_host(100)  // Increased from 50
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .timeout(std::time::Duration::from_secs(60))  // Increased timeout for larger packages
+            .tcp_nodelay(true)  // Disable Nagle's algorithm for lower latency
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
+        Self { client }
     }
 
     pub async fn download_from_pubdev(
@@ -25,6 +35,7 @@ impl PackageDownloader {
         name: &str,
         version: &str,
     ) -> Result<PathBuf> {
+        let start = Instant::now();
         info!("Downloading {}@{} from pub.dev", name, version);
 
         CachePaths::ensure_directories()?;
@@ -42,14 +53,19 @@ impl PackageDownloader {
 
         debug!("Download URL: {}", url);
 
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} Downloading {msg}")
-                .unwrap()
-        );
-        pb.set_message(format!("{}@{}", name, version));
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb = if verbosity::should_show_progress_bars() {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} Downloading {msg}")
+                    .unwrap()
+            );
+            pb.set_message(format!("{}@{}", name, version));
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            Some(pb)
+        } else {
+            None
+        };
 
         let response = self.client
             .get(&url)
@@ -71,14 +87,16 @@ impl PackageDownloader {
             .content_length()
             .unwrap_or(0);
 
-        if total_size > 0 {
-            pb.set_length(total_size);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
-                    .unwrap()
-                    .progress_chars("#>-")
-            );
+        if let Some(ref pb) = pb {
+            if total_size > 0 {
+                pb.set_length(total_size);
+                pb.set_style(
+                    ProgressStyle::default_bar()
+                        .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
+                        .unwrap()
+                        .progress_chars("#>-")
+                );
+            }
         }
 
         let mut file = File::create(&download_path).await?;
@@ -91,10 +109,28 @@ impl PackageDownloader {
             file.write_all(&chunk).await?;
 
             downloaded += chunk.len() as u64;
-            pb.set_position(downloaded);
+            if let Some(ref pb) = pb {
+                pb.set_position(downloaded);
+            }
         }
 
-        pb.finish_with_message(format!("Downloaded {}@{}", name, version));
+        let elapsed = start.elapsed();
+        let size_mb = downloaded as f64 / 1_048_576.0;
+        let speed_mb = size_mb / elapsed.as_secs_f64();
+
+        if let Some(pb) = pb {
+            if verbosity::should_show_download_details() {
+                pb.finish_with_message(format!("Downloaded {}@{} ({:.1}MB in {:.1}s, {:.1}MB/s)",
+                    name, version, size_mb, elapsed.as_secs_f32(), speed_mb));
+            } else {
+                pb.finish_and_clear();
+            }
+        }
+
+        if verbosity::is_debug() {
+            debug!("Download stats for {}@{}: {:.1}MB in {:.2}s ({:.2}MB/s)",
+                name, version, size_mb, elapsed.as_secs_f32(), speed_mb);
+        }
 
         Ok(download_path)
     }

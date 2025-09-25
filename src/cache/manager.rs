@@ -7,6 +7,7 @@ use super::downloader::PackageDownloader;
 use super::storage::PackageStorage;
 use super::paths::CachePaths;
 
+#[derive(Clone)]
 pub struct CacheManager {
     downloader: PackageDownloader,
 }

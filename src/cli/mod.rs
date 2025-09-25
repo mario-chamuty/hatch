@@ -2,19 +2,20 @@ use clap::{Parser, Subcommand};
 
 pub mod commands;
 pub mod args;
+pub mod verbosity;
 
 #[derive(Parser)]
 #[command(name = "hatch")]
 #[command(about = "Next-Gen Dependency and Build Manager for Flutter")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(long_about = "Hatch - The unified toolchain Flutter has been missing.\nSmarter dependency management, automatic builds, and team-wide version sync.")]
+#[command(long_about = "Hatch - The unified toolchain Flutter has been missing.\nSmarter dependency management, automatic builds, and team-wide version sync.\n\nEnvironment variables:\n  HATCH_CACHE_DIR - Custom cache directory path (useful for CI/CD)\n  HATCH_API_KEY   - API key for backend services")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    /// Enable verbose output
-    #[arg(short, long, global = true)]
-    pub verbose: bool,
+    /// Increase verbosity (use -v, -vv, or -vvv)
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
 
     /// Suppress output
     #[arg(short, long, global = true)]
@@ -148,6 +149,11 @@ pub enum Commands {
         #[arg(short, long)]
         check: bool,
     },
+    /// Clear the package cache
+    Cache {
+        #[command(subcommand)]
+        subcommand: CacheCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -202,5 +208,24 @@ pub enum BuildsCommands {
         /// Output directory
         #[arg(short, long)]
         output: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CacheCommands {
+    /// Clear all cached packages
+    Clear {
+        /// Force clear without confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Show cache statistics
+    Stats,
+    /// Clear specific package from cache
+    Remove {
+        /// Package name
+        package: String,
+        /// Package version (optional)
+        version: Option<String>,
     },
 }
