@@ -13,3 +13,4 @@ pub mod build;
 pub mod publish;
 pub mod builds;
 pub mod version;
+pub mod migrate;

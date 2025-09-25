@@ -71,5 +71,8 @@ async fn main() -> Result<()> {
         Commands::Version => {
             cli::commands::version::execute().await
         }
+        Commands::Migrate { pubspec, output } => {
+            cli::commands::migrate::execute(pubspec, output).await
+        }
     }
 }

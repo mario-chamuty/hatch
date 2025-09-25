@@ -127,6 +127,15 @@ pub enum Commands {
     },
     /// Show version information
     Version,
+    /// Migrate from pubspec.yaml to hatch.json
+    Migrate {
+        /// Path to pubspec.yaml (defaults to ./pubspec.yaml)
+        #[arg(short, long)]
+        pubspec: Option<String>,
+        /// Output path for hatch.json (defaults to ./hatch.json)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
