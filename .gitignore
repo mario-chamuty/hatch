@@ -81,3 +81,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+/HATCH.md
+/icon.psd
+/PLAN.md
+/.claude/settings.local.json
