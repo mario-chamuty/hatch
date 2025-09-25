@@ -166,8 +166,16 @@ fn convert_pubspec_to_hatch(pubspec: Value, fvm_config: Option<FvmConfig>) -> Re
                         continue;
                     }
 
-                    // Check if it's a path dependency
+                    // Check if it's an SDK dependency (like flutter_localizations, flutter_test)
                     if let Some(mapping) = value.as_mapping() {
+                        if let Some(sdk) = mapping.get("sdk") {
+                            if sdk.as_str() == Some("flutter") {
+                                // Skip SDK dependencies as they're handled by Flutter SDK
+                                continue;
+                            }
+                        }
+
+                        // Check if it's a path dependency
                         if let Some(path) = mapping.get("path").and_then(|p| p.as_str()) {
                             local_packages.insert(key_str.to_string(), path.to_string());
                             continue;
@@ -195,7 +203,16 @@ fn convert_pubspec_to_hatch(pubspec: Value, fvm_config: Option<FvmConfig>) -> Re
 
             for (key, value) in deps_map {
                 if let Some(key_str) = key.as_str() {
-                    // Skip Flutter test SDK dependency
+                    // Skip SDK dependencies
+                    if let Some(mapping) = value.as_mapping() {
+                        if let Some(sdk) = mapping.get("sdk") {
+                            if sdk.as_str() == Some("flutter") {
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Skip flutter_test for backward compatibility
                     if key_str == "flutter_test" {
                         continue;
                     }
