@@ -14,3 +14,4 @@ pub mod publish;
 pub mod builds;
 pub mod version;
 pub mod migrate;
+pub mod sdk_update;

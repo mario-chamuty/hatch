@@ -136,6 +136,18 @@ pub enum Commands {
         #[arg(short, long)]
         output: Option<String>,
     },
+    /// Update Flutter and Dart SDK versions
+    SdkUpdate {
+        /// Flutter version to update to (e.g., "3.16.9", "stable", "latest")
+        #[arg(short, long)]
+        flutter: Option<String>,
+        /// Dart SDK constraint to update to (e.g., ">=3.0.0 <4.0.0")
+        #[arg(short, long)]
+        dart: Option<String>,
+        /// Check for available updates without modifying
+        #[arg(short, long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]

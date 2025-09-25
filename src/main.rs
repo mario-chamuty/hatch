@@ -74,5 +74,12 @@ async fn main() -> Result<()> {
         Commands::Migrate { pubspec, output } => {
             cli::commands::migrate::execute(pubspec, output).await
         }
+        Commands::SdkUpdate { flutter, dart, check } => {
+            if check {
+                cli::commands::sdk_update::execute_check().await
+            } else {
+                cli::commands::sdk_update::execute(flutter, dart).await
+            }
+        }
     }
 }
