@@ -32,9 +32,56 @@ async fn main() -> Result<()> {
         0 => "warn",
         1 => "info",
         2 => "debug",
-        _ => "trace",
+        3 => "trace",  // -vvv (debug mode)
+        _ => "trace",  // -vvvv+ (ultra-verbose)
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
+
+    // For -vvv mode, create a logfile in addition to console output
+    if cli.verbose >= 3 {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::sync::Mutex;
+        use chrono::Utc;
+
+        let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+        let log_filename = format!("hatch_debug_{}.log", timestamp);
+
+        // Create the log file once and wrap it in a Mutex for thread-safe access
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_filename)
+            .expect("Failed to create log file");
+        let log_file = Mutex::new(log_file);
+
+        let mut builder = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level));
+
+        // Create custom logger that writes to both console and file
+        builder.format(move |buf, record| {
+            use std::io::Write as IoWrite;
+
+            let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            let level = record.level();
+            let target = record.target();
+            let message = record.args();
+
+            // Write to buffer (console output)
+            writeln!(buf, "[{} {} {}] {}", timestamp, level, target, message)?;
+
+            // Write to logfile (thread-safe)
+            if let Ok(mut file) = log_file.lock() {
+                let _ = writeln!(file, "[{} {} {}] {}", timestamp, level, target, message);
+            }
+
+            Ok(())
+        });
+
+        builder.init();
+
+        println!("🔍 DEBUG MODE: Logging detailed information to {}", log_filename);
+    } else {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
+    }
 
     info!("Starting Hatch CLI v{}", env!("CARGO_PKG_VERSION"));
 

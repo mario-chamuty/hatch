@@ -29,7 +29,11 @@ impl PackageStorage {
         version: &str,
         archive_path: &Path,
     ) -> Result<PathBuf> {
-        info!("Storing package {}@{} from {}", name, version, registry);
+        if crate::cli::verbosity::is_ultra_verbose() {
+            info!("Storing package {}@{} from {}", name, version, registry);
+        } else {
+            debug!("Storing package {}@{} from {}", name, version, registry);
+        }
 
         // Get destination directory
         let package_dir = CachePaths::package_dir(registry, name, version)?;
@@ -43,7 +47,9 @@ impl PackageStorage {
         // Extract package
         match PackageExtractor::extract_package(archive_path, &package_dir) {
             Ok(_) => {
-                info!("Stored package at: {}", package_dir.display());
+                if crate::cli::verbosity::is_ultra_verbose() {
+                    info!("Stored package at: {}", package_dir.display());
+                }
 
                 // Write metadata
                 Self::write_metadata(registry, name, version, &package_dir)?;

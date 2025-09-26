@@ -30,7 +30,41 @@ impl CacheManager {
             return Ok(cached_path);
         }
 
-        info!("Package {}@{} not cached, downloading...", name, version);
+        let caller = std::panic::Location::caller();
+        warn!("🚨 SEQUENTIAL DOWNLOAD: Package {}@{} not cached, downloading... (This should not happen in parallel mode!)", name, version);
+
+        if crate::cli::verbosity::is_debug() {
+            println!("🔍 SEQUENTIAL DOWNLOAD TRACE: {}@{}", name, version);
+            println!("   └── Called from: {}:{}:{}", caller.file(), caller.line(), caller.column());
+            println!("   └── Reason: Package not in cache, falling back to individual download");
+            println!("   └── Context: This indicates the parallel download batch missed this package");
+        }
+
+        self.download_and_cache(registry, name, version).await
+    }
+
+    /// Get package for parallel download context - doesn't warn about sequential downloads
+    pub async fn get_package_parallel(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+    ) -> Result<PathBuf> {
+        if let Some(cached_path) = PackageStorage::get_package_path(registry, name, version)? {
+            if crate::cli::verbosity::is_debug() {
+                println!("✓ PARALLEL CACHE HIT: {}@{} (already cached)", name, version);
+            } else {
+                debug!("Using cached package: {}@{}", name, version);
+            }
+            return Ok(cached_path);
+        }
+
+        if crate::cli::verbosity::is_debug() {
+            println!("📥 PARALLEL DOWNLOAD: {}@{} (downloading in parallel batch)", name, version);
+        } else {
+            debug!("Downloading {}@{} as part of parallel batch", name, version);
+        }
+
         self.download_and_cache(registry, name, version).await
     }
 
@@ -40,13 +74,42 @@ impl CacheManager {
         name: &str,
         version: &str,
     ) -> Result<PathBuf> {
-        let archive_path = self.downloader.download(registry, name, version).await?;
+        let download_start = std::time::Instant::now();
 
-        let cached_path = PackageStorage::store_package(registry, name, version, &archive_path)?;
-
-        if let Err(e) = std::fs::remove_file(&archive_path) {
-            warn!("Failed to clean up download file: {}", e);
+        if crate::cli::verbosity::is_debug() {
+            println!("⬇️  DOWNLOADING: {}@{} from {}", name, version, registry);
         }
+
+        let archive_path = self.downloader.download(registry, name, version).await?;
+        let download_time = download_start.elapsed();
+
+        if crate::cli::verbosity::is_debug() {
+            println!("📦 EXTRACTING: {}@{} ({:.2}s download)", name, version, download_time.as_secs_f32());
+        }
+
+        // Move extraction to a blocking task pool to avoid blocking the async runtime
+        let registry_str = registry.to_string();
+        let name_str = name.to_string();
+        let version_str = version.to_string();
+        let archive_path_clone = archive_path.clone();
+        let extract_start = std::time::Instant::now();
+        let cached_path = tokio::task::spawn_blocking(move || {
+            PackageStorage::store_package(&registry_str, &name_str, &version_str, &archive_path_clone)
+        }).await??;
+        let extract_time = extract_start.elapsed();
+
+        if crate::cli::verbosity::is_debug() {
+            println!("✅ COMPLETED: {}@{} ({:.2}s extract, {:.2}s total)",
+                name, version, extract_time.as_secs_f32(),
+                (download_time + extract_time).as_secs_f32());
+        }
+
+        // Clean up in background
+        tokio::spawn(async move {
+            if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+                warn!("Failed to clean up download file: {}", e);
+            }
+        });
 
         Ok(cached_path)
     }

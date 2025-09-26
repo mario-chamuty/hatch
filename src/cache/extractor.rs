@@ -36,11 +36,19 @@ impl PackageExtractor {
     }
 
     pub fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
-        info!(
-            "Extracting {} to {}",
-            archive_path.display(),
-            dest_dir.display()
-        );
+        if crate::cli::verbosity::is_ultra_verbose() {
+            info!(
+                "Extracting {} to {}",
+                archive_path.display(),
+                dest_dir.display()
+            );
+        } else {
+            debug!(
+                "Extracting {} to {}",
+                archive_path.display(),
+                dest_dir.display()
+            );
+        }
 
         // Use extended path on Windows for the destination directory
         let dest_dir = Self::to_extended_path(dest_dir);
@@ -78,7 +86,9 @@ impl PackageExtractor {
                 }
 
                 long_name = Some(String::from_utf8_lossy(&long_name_bytes).into_owned());
-                debug!("Found long name: {:?}", long_name);
+                if crate::cli::verbosity::is_ultra_verbose() {
+                    debug!("Found long name: {:?}", long_name);
+                }
                 continue;
             }
 
@@ -91,7 +101,9 @@ impl PackageExtractor {
             if let Some(ref name) = long_name {
                 path = PathBuf::from(name);
                 long_name = None; // Reset for next entry
-                debug!("Using long name for extraction: {}", path.display());
+                if crate::cli::verbosity::is_ultra_verbose() {
+                    debug!("Using long name for extraction: {}", path.display());
+                }
             }
 
             // Security check
@@ -121,16 +133,24 @@ impl PackageExtractor {
                 std::fs::write(&dest_path, content)
                     .map_err(|e| anyhow!("Failed to write {:?}: {}", dest_path, e))?;
 
-                debug!("Extracted file: {}", path.display());
+                if crate::cli::verbosity::is_ultra_verbose() {
+                    debug!("Extracted file: {}", path.display());
+                }
             } else if entry_type.is_dir() {
                 std::fs::create_dir_all(&dest_path)?;
-                debug!("Created directory: {}", path.display());
+                if crate::cli::verbosity::is_ultra_verbose() {
+                    debug!("Created directory: {}", path.display());
+                }
             } else {
                 debug!("Skipping special entry type: {:?} for {}", entry_type, path.display());
             }
         }
 
-        info!("Extraction complete: {}", dest_dir.display());
+        if crate::cli::verbosity::is_ultra_verbose() {
+            info!("Extraction complete: {}", dest_dir.display());
+        } else {
+            debug!("Extraction complete: {}", dest_dir.display());
+        }
         Ok(())
     }
 

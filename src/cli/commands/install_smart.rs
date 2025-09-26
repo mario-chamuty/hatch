@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::warn;
+use log::{warn, info, debug};
 use std::collections::HashMap;
 use std::time::Instant;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -77,6 +77,7 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
     }
 
     let resolved_paths = resolver.get_resolved_paths();
+    let resolved_batches = resolver.get_resolved_batches();
 
     let resolved_packages: Vec<ResolvedPackage> = resolved
         .iter()
@@ -100,73 +101,109 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
     LockfileGenerator::generate(&manifest, &resolved_packages, lockfile_path)?;
     println!("🔒 Generated hatch.lock");
 
-    // Pre-check cached packages to avoid unnecessary work
+    // ULTRA-PARALLEL DOWNLOAD STRATEGY:
+    // 1. Collect ALL packages (direct + transitive) upfront
+    // 2. Check cache for all of them
+    // 3. Download ALL missing packages in one massive parallel batch
+
+    println!("📥 Preparing to download packages...");
+    let download_start = Instant::now();
+
+    // Debug: Check if we have ALL resolved packages
+    println!("🔍 Debug: UltraResolver resolved {} packages", resolved.len());
+
     let cache_manager = CacheManager::new();
     CacheManager::ensure_cache_dirs()?;
 
+    // First pass: Collect ALL packages and check cache status
+    let mut all_packages_to_check = Vec::new();
     let mut downloaded_packages = HashMap::new();
     let mut packages_to_download = Vec::new();
-    let mut already_cached = 0;
 
+    // Add all resolved packages (this includes ALL transitive deps already)
     for (name, version) in &resolved {
         if name == "flutter" {
             continue;
         }
 
-        // Skip local packages
-        if resolved_paths.contains_key(name) {
-            continue;
-        }
-
-        // Check if already cached
-        let cache_path = crate::cache::paths::CachePaths::package_dir("pub.dev", name, version)?;
-        if cache_path.exists() {
-            already_cached += 1;
-            downloaded_packages.insert(format!("{}@{}", name, version), cache_path);
-        } else {
-            packages_to_download.push((name.clone(), version.clone()));
-        }
-    }
-
-    if packages_to_download.is_empty() && already_cached > 0 {
-        println!("📦 All {} packages already cached", already_cached);
-    } else if packages_to_download.len() > 0 {
-        println!("📥 Downloading {} packages ({} already cached)...", packages_to_download.len(), already_cached);
-    }
-
-    let download_start = Instant::now();
-
-    // Collect packages to download
-    let mut download_tasks = Vec::new();
-    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(100)); // 100 parallel downloads for ultra-fast downloading
-
-    // Process local packages
-    for (name, version) in &resolved {
+        // Handle local packages
         if let Some(local_path) = resolved_paths.get(name) {
             if verbosity::should_show_download_details() {
                 println!("   {} @ {} [local] ... ✓", name, local_path.display());
             }
             downloaded_packages.insert(format!("{}@{}", name, version), local_path.clone());
+            continue;
+        }
+
+        all_packages_to_check.push((name.clone(), version.clone()));
+    }
+
+    // Batch check cache status for ALL packages
+    let mut already_cached = 0;
+    for (name, version) in all_packages_to_check {
+        let cache_path = crate::cache::paths::CachePaths::package_dir("pub.dev", &name, &version)?;
+        if cache_path.exists() {
+            already_cached += 1;
+            downloaded_packages.insert(format!("{}@{}", name, version), cache_path);
+        } else {
+            packages_to_download.push((name, version));
         }
     }
 
-    // Download only packages that aren't cached
-    for (name, version) in packages_to_download {
-        let cache_manager_clone = cache_manager.clone();
-        let sem_clone = semaphore.clone();
+    if packages_to_download.is_empty() {
+        if already_cached > 0 {
+            println!("📦 All {} packages already cached", already_cached);
+        }
+    } else {
+        println!("🚀 Downloading {} packages in parallel ({} already cached)...",
+                 packages_to_download.len(), already_cached);
 
-        let task = tokio::spawn(async move {
-            let _permit = sem_clone.acquire().await.unwrap();
-            let result = cache_manager_clone.get_package("pub.dev", &name, &version).await;
-            (name, version, result)
-        });
+        if verbosity::is_debug() {
+            println!("🔍 PARALLEL DOWNLOAD SETUP: Creating {} download tasks", packages_to_download.len());
 
-        download_tasks.push(task);
-    }
+            // Group packages by batch for display
+            let mut packages_by_batch: std::collections::BTreeMap<usize, Vec<(String, String)>> = std::collections::BTreeMap::new();
+            for (name, version) in &packages_to_download {
+                let batch = resolved_batches.get(name).copied().unwrap_or(999);
+                packages_by_batch.entry(batch).or_insert_with(Vec::new).push((name.clone(), version.clone()));
+            }
 
-    // Create progress bar for downloads
-    let total_downloads = download_tasks.len();
-    let progress = if verbosity::should_show_progress_bars() && total_downloads > 0 {
+            // Display packages grouped by batch
+            for (batch_num, batch_packages) in packages_by_batch {
+                let batch_msg = format!("📦 BATCH {} ({} packages):", batch_num, batch_packages.len());
+                println!("{}", batch_msg);
+                info!("{}", batch_msg);  // Also log to file
+                for (name, version) in batch_packages {
+                    let pkg_msg = format!("   └── {}@{}", name, version);
+                    println!("{}", pkg_msg);
+                    info!("{}", pkg_msg);  // Also log to file
+                }
+            }
+        }
+
+        // Create ALL download tasks at once - true parallel downloading!
+        let mut download_tasks = Vec::new();
+        let download_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(100));
+
+        for (name, version) in packages_to_download {
+            let cache_manager_clone = cache_manager.clone();
+            let sem_clone = download_semaphore.clone();
+            let batch_num = resolved_batches.get(&name).copied().unwrap_or(999);
+
+            let task = tokio::spawn(async move {
+                let _permit = sem_clone.acquire().await.unwrap();
+                let start = std::time::Instant::now();
+                let result = cache_manager_clone.get_package_parallel("pub.dev", &name, &version).await;
+                let elapsed = start.elapsed();
+                (name, version, batch_num, result, elapsed)
+            });
+
+            download_tasks.push(task);
+        }
+
+        // Progress bar for parallel downloads
+        let total_downloads = download_tasks.len();
+        let progress = if verbosity::should_show_progress_bars() && total_downloads > 0 {
         let pb = ProgressBar::new(total_downloads as u64);
         pb.set_style(
             ProgressStyle::default_bar()
@@ -179,23 +216,34 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
         None
     };
 
-    // Wait for all downloads
-    let results = futures::future::join_all(download_tasks).await;
-    let download_time = download_start.elapsed();
+        if verbosity::is_debug() {
+            println!("⏳ WAITING: for {} parallel download tasks to complete...", download_tasks.len());
+        }
 
-    let mut failed = 0;
-    for result in results {
+        // Wait for ALL downloads to complete in parallel
+        let results = futures::future::join_all(download_tasks).await;
+
+        if verbosity::is_debug() {
+            println!("🎯 RESULTS: Processing {} download results", results.len());
+        }
+
+        let mut failed = 0;
+        for result in results {
         match result {
-            Ok((name, version, Ok(path))) => {
-                if verbosity::should_show_download_details() {
-                    println!("   {} @ {} ... ✓", name, version);
+            Ok((name, version, batch_num, Ok(path), elapsed)) => {
+                if verbosity::is_debug() {
+                    let success_msg = format!("✅ BATCH {} SUCCESS: {} @ {} ... ✓ ({:.2}s)", batch_num, name, version, elapsed.as_secs_f32());
+                    println!("{}", success_msg);
+                    debug!("{}", success_msg);  // Also log to file
+                } else if verbosity::should_show_download_details() {
+                    println!("   {} @ {} ... ✓ ({:.2}s)", name, version, elapsed.as_secs_f32());
                 }
                 if let Some(ref pb) = progress {
                     pb.inc(1);
                 }
                 downloaded_packages.insert(format!("{}@{}", name, version), path);
             }
-            Ok((name, version, Err(e))) => {
+            Ok((name, version, _batch_num, Err(e), _elapsed)) => {
                 if verbosity::should_show_download_details() {
                     println!("   {} @ {} ... ✗", name, version);
                 }
@@ -213,23 +261,33 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
                 failed += 1;
             }
         }
+        }
+
+        if let Some(pb) = progress {
+            pb.finish_and_clear();
+        }
+
+        if failed > 0 {
+            println!("⚠️  {} packages failed to download", failed);
+        }
     }
 
-    if let Some(pb) = progress {
-        pb.finish_and_clear();
-    }
-
-    if failed > 0 {
-        println!("⚠️  {} packages failed to download", failed);
-    }
-
+    let download_time = download_start.elapsed();
     if verbosity::should_show_timings() {
-        println!("   ⏱️  Downloads completed in {:.2}s", download_time.as_secs_f32());
+        println!("   ⏱️  All downloads completed in {:.2}s", download_time.as_secs_f32());
     }
 
     if verbosity::is_verbose() {
         println!("📝 Generating package_config.json...");
     }
+
+    if verbosity::is_debug() {
+        println!("📝 CONFIG GENERATION: Starting with {} downloaded packages", downloaded_packages.len());
+        for (name_version, path) in &downloaded_packages {
+            println!("   └── {} -> {}", name_version, path.display());
+        }
+    }
+
     let config_start = Instant::now();
     cache_manager.generate_package_config(&downloaded_packages, &manifest.name)?;
     cache_manager.generate_packages_file(&downloaded_packages, &manifest.name)?;
