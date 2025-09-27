@@ -1,4 +1,5 @@
 use super::schema::{HatchManifest, Profile};
+use crate::resolver::dependency_utils::DependencyUtils;
 use std::collections::HashMap;
 
 /// Profile and override merging utilities
@@ -45,9 +46,9 @@ impl ManifestMerger {
     pub fn flatten_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
         let mut deps = HashMap::new();
 
-        // Start with base dependencies
+        // Start with base dependencies (convert to simple format)
         if let Some(base_deps) = &manifest.require {
-            deps.extend(base_deps.clone());
+            deps.extend(DependencyUtils::to_simple_deps(base_deps));
         }
 
         // Add profile-specific dependencies if profile is specified
@@ -55,7 +56,7 @@ impl ManifestMerger {
             if let Some(profiles) = &manifest.profiles {
                 if let Some(profile) = profiles.get(profile_name) {
                     if let Some(profile_deps) = &profile.require {
-                        deps.extend(profile_deps.clone());
+                        deps.extend(DependencyUtils::to_simple_deps(profile_deps));
                     }
                 }
             }
@@ -68,9 +69,9 @@ impl ManifestMerger {
     pub fn flatten_dev_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
         let mut deps = HashMap::new();
 
-        // Start with base dev dependencies
+        // Start with base dev dependencies (convert to simple format)
         if let Some(base_dev_deps) = &manifest.require_dev {
-            deps.extend(base_dev_deps.clone());
+            deps.extend(DependencyUtils::to_simple_deps(base_dev_deps));
         }
 
         // Add profile-specific dev dependencies if profile is specified
@@ -78,7 +79,7 @@ impl ManifestMerger {
             if let Some(profiles) = &manifest.profiles {
                 if let Some(profile) = profiles.get(profile_name) {
                     if let Some(profile_dev_deps) = &profile.require_dev {
-                        deps.extend(profile_dev_deps.clone());
+                        deps.extend(DependencyUtils::to_simple_deps(profile_dev_deps));
                     }
                 }
             }

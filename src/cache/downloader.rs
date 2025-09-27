@@ -35,6 +35,15 @@ impl PackageDownloader {
         name: &str,
         version: &str,
     ) -> Result<PathBuf> {
+        self.download_from_pubdev_with_checksum(name, version, None).await
+    }
+
+    pub async fn download_from_pubdev_with_checksum(
+        &self,
+        name: &str,
+        version: &str,
+        expected_sha256: Option<&str>,
+    ) -> Result<PathBuf> {
         let start = Instant::now();
         info!("Downloading {}@{} from pub.dev", name, version);
 
@@ -132,6 +141,20 @@ impl PackageDownloader {
                 name, version, size_mb, elapsed.as_secs_f32(), speed_mb);
         }
 
+        // Verify checksum if provided
+        if expected_sha256.is_some() {
+            match self.verify_checksum(&download_path, expected_sha256).await {
+                Ok(_) => {
+                    info!("✓ Checksum verified for {}@{}", name, version);
+                }
+                Err(e) => {
+                    // Delete the corrupted file
+                    let _ = tokio::fs::remove_file(&download_path).await;
+                    return Err(anyhow!("Checksum verification failed for {}@{}: {}", name, version, e));
+                }
+            }
+        }
+
         Ok(download_path)
     }
 
@@ -141,8 +164,18 @@ impl PackageDownloader {
         name: &str,
         version: &str,
     ) -> Result<PathBuf> {
+        self.download_with_checksum(registry, name, version, None).await
+    }
+
+    pub async fn download_with_checksum(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+        checksum: Option<&str>,
+    ) -> Result<PathBuf> {
         match registry {
-            "pub.dev" => self.download_from_pubdev(name, version).await,
+            "pub.dev" => self.download_from_pubdev_with_checksum(name, version, checksum).await,
             _ => Err(anyhow!("Unsupported registry: {}", registry)),
         }
     }

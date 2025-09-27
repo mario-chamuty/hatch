@@ -2,9 +2,9 @@ pub mod sat;
 pub mod graph;
 pub mod version;
 pub mod cache;
-pub mod smart;
-pub mod fast;
 pub mod ultra;
+pub mod dependency_utils;
+pub mod version_alias;
 
 pub struct DependencyResolver {
     // TODO: Add resolver state

@@ -24,6 +24,8 @@ pub struct PackageVersion {
     pub published: Option<String>,
     pub dart_sdk: Option<String>,
     pub flutter_sdk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_sha256: Option<String>,
 }
 
 /// Dependency resolution result

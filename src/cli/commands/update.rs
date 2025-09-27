@@ -39,11 +39,21 @@ async fn update_all_packages(
 
     // Update regular dependencies
     if let Some(deps) = &mut manifest.require {
-        for (name, constraint) in deps.iter_mut() {
-            if let Ok(new_version) = get_latest_matching_version(registry, name, constraint).await {
-                if new_version != *constraint {
-                    println!("   {} {} → {}", name, constraint.yellow(), new_version.green());
-                    *constraint = new_version.clone();
+        for (name, dep) in deps.iter_mut() {
+            // Skip local and git dependencies
+            if dep.is_local() || dep.is_git() {
+                continue;
+            }
+
+            let current_version = dep.version();
+            if let Ok(new_version) = get_latest_matching_version(registry, name, current_version).await {
+                if new_version != current_version {
+                    println!("   {} {} → {}", name, current_version.yellow(), new_version.green());
+                    // Update the version in the dependency
+                    match dep {
+                        crate::manifest::Dependency::Simple(ref mut v) => *v = new_version.clone(),
+                        crate::manifest::Dependency::Complex(ref mut c) => c.version = new_version.clone(),
+                    }
                     updated.push(name.clone());
                 }
             }
@@ -52,11 +62,21 @@ async fn update_all_packages(
 
     // Update dev dependencies
     if let Some(dev_deps) = &mut manifest.require_dev {
-        for (name, constraint) in dev_deps.iter_mut() {
-            if let Ok(new_version) = get_latest_matching_version(registry, name, constraint).await {
-                if new_version != *constraint {
-                    println!("   {} {} → {} (dev)", name, constraint.yellow(), new_version.green());
-                    *constraint = new_version.clone();
+        for (name, dep) in dev_deps.iter_mut() {
+            // Skip local and git dependencies
+            if dep.is_local() || dep.is_git() {
+                continue;
+            }
+
+            let current_version = dep.version();
+            if let Ok(new_version) = get_latest_matching_version(registry, name, current_version).await {
+                if new_version != current_version {
+                    println!("   {} {} → {} (dev)", name, current_version.yellow(), new_version.green());
+                    // Update the version in the dependency
+                    match dep {
+                        crate::manifest::Dependency::Simple(ref mut v) => *v = new_version.clone(),
+                        crate::manifest::Dependency::Complex(ref mut c) => c.version = new_version.clone(),
+                    }
                     updated.push(name.clone());
                 }
             }
@@ -85,12 +105,23 @@ async fn update_specific_packages(
 
         // Check regular dependencies
         if let Some(deps) = &mut manifest.require {
-            if let Some(constraint) = deps.get_mut(&package) {
+            if let Some(dep) = deps.get_mut(&package) {
+                // Skip local and git dependencies
+                if dep.is_local() || dep.is_git() {
+                    println!("   {} is a local/git dependency - skipping", package);
+                    continue;
+                }
+
                 found = true;
-                if let Ok(new_version) = get_latest_matching_version(registry, &package, constraint).await {
-                    if new_version != *constraint {
-                        println!("   {} {} → {}", package, constraint.yellow(), new_version.green());
-                        *constraint = new_version.clone();
+                let current_version = dep.version();
+                if let Ok(new_version) = get_latest_matching_version(registry, &package, current_version).await {
+                    if new_version != current_version {
+                        println!("   {} {} → {}", package, current_version.yellow(), new_version.green());
+                        // Update the version in the dependency
+                        match dep {
+                            crate::manifest::Dependency::Simple(ref mut v) => *v = new_version.clone(),
+                            crate::manifest::Dependency::Complex(ref mut c) => c.version = new_version.clone(),
+                        }
                         updated.push(package.clone());
                     } else {
                         println!("   {} is already up to date", package);
@@ -102,12 +133,23 @@ async fn update_specific_packages(
         // Check dev dependencies
         if !found {
             if let Some(dev_deps) = &mut manifest.require_dev {
-                if let Some(constraint) = dev_deps.get_mut(&package) {
+                if let Some(dep) = dev_deps.get_mut(&package) {
+                    // Skip local and git dependencies
+                    if dep.is_local() || dep.is_git() {
+                        println!("   {} is a local/git dependency - skipping", package);
+                        continue;
+                    }
+
                     found = true;
-                    if let Ok(new_version) = get_latest_matching_version(registry, &package, constraint).await {
-                        if new_version != *constraint {
-                            println!("   {} {} → {} (dev)", package, constraint.yellow(), new_version.green());
-                            *constraint = new_version.clone();
+                    let current_version = dep.version();
+                    if let Ok(new_version) = get_latest_matching_version(registry, &package, current_version).await {
+                        if new_version != current_version {
+                            println!("   {} {} → {} (dev)", package, current_version.yellow(), new_version.green());
+                            // Update the version in the dependency
+                            match dep {
+                                crate::manifest::Dependency::Simple(ref mut v) => *v = new_version.clone(),
+                                crate::manifest::Dependency::Complex(ref mut c) => c.version = new_version.clone(),
+                            }
                             updated.push(package.clone());
                         } else {
                             println!("   {} is already up to date", package);

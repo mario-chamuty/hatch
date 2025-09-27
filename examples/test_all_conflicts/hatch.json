@@ -1,0 +1,17 @@
+{
+  "name": "test_all_conflicts",
+  "description": "Test all three sources",
+  "sdk": {
+    "flutter": "3.24.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+  "require": {
+    "http": "^0.13.0",
+    "bad_package": {
+      "version": "^1.0.0",
+      "path": "../local",
+      "nest": "company",
+      "git": "git@github.com:example/package.git"
+    }
+  }
+}

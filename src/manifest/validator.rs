@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use regex::Regex;
 use super::schema::HatchManifest;
+use super::Dependency;
 
 /// Manifest validation utilities
 pub struct ManifestValidator;
@@ -21,18 +22,48 @@ impl ManifestValidator {
             Self::validate_dart_version(dart)?;
         }
 
+        // Collect available nest names
+        let available_nests: Vec<String> = manifest.nests
+            .as_ref()
+            .map(|nests| nests.iter().map(|n| n.name.clone()).collect())
+            .unwrap_or_default();
+
         // Validate dependencies
         if let Some(deps) = &manifest.require {
-            for (name, constraint) in deps {
+            for (name, dep) in deps {
                 Self::validate_package_name(name)?;
-                Self::validate_version_constraint(constraint)?;
+                Self::validate_version_constraint(dep.version())?;
+
+                // Validate dependency sources for conflicts
+                if let Err(e) = dep.validate(name) {
+                    return Err(anyhow!(e));
+                }
+
+                // Validate nest references
+                if let Dependency::Complex(complex) = dep {
+                    if let Err(e) = complex.validate_nest(name, &available_nests) {
+                        return Err(anyhow!(e));
+                    }
+                }
             }
         }
 
         if let Some(dev_deps) = &manifest.require_dev {
-            for (name, constraint) in dev_deps {
+            for (name, dep) in dev_deps {
                 Self::validate_package_name(name)?;
-                Self::validate_version_constraint(constraint)?;
+                Self::validate_version_constraint(dep.version())?;
+
+                // Validate dependency sources for conflicts
+                if let Err(e) = dep.validate(name) {
+                    return Err(anyhow!(e));
+                }
+
+                // Validate nest references
+                if let Dependency::Complex(complex) = dep {
+                    if let Err(e) = complex.validate_nest(name, &available_nests) {
+                        return Err(anyhow!(e));
+                    }
+                }
             }
         }
 
@@ -133,6 +164,11 @@ impl ManifestValidator {
             return Err(anyhow!("Version constraint cannot be empty"));
         }
 
+        // Handle special cases
+        if constraint == "any" || constraint == "*" {
+            return Ok(());
+        }
+
         // Handle Flutter SDK reference
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(constraint) {
             if let Some(obj) = value.as_object() {
@@ -143,10 +179,10 @@ impl ManifestValidator {
         }
 
         // Basic semantic version constraint validation
-        let re = Regex::new(r"^[\^~>=<\s\d\.]+$").unwrap();
+        let re = Regex::new(r"^[\^~>=<\s\d\.\*]+$").unwrap();
         if !re.is_match(constraint) {
             return Err(anyhow!(
-                "Invalid version constraint '{}'. Expected format: ^X.Y.Z, ~X.Y.Z, >=X.Y.Z, etc.",
+                "Invalid version constraint '{}'. Expected format: ^X.Y.Z, ~X.Y.Z, >=X.Y.Z, any, *, etc.",
                 constraint
             ));
         }
@@ -159,12 +195,12 @@ impl ManifestValidator {
         let mut conflicts = Vec::new();
 
         if let (Some(deps), Some(dev_deps)) = (&manifest.require, &manifest.require_dev) {
-            for (name, version) in deps {
-                if let Some(dev_version) = dev_deps.get(name) {
-                    if version != dev_version {
+            for (name, dep) in deps {
+                if let Some(dev_dep) = dev_deps.get(name) {
+                    if dep.version() != dev_dep.version() {
                         conflicts.push(format!(
                             "Conflicting versions for '{}': require={}, require-dev={}",
-                            name, version, dev_version
+                            name, dep.version(), dev_dep.version()
                         ));
                     }
                 }

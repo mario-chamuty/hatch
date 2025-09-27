@@ -1,0 +1,21 @@
+{
+  "name": "test_valid_nest",
+  "description": "Test valid nest reference",
+  "sdk": {
+    "flutter": "3.24.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+  "nests": [
+    {
+      "name": "company-registry",
+      "url": "https://packages.company.com"
+    }
+  ],
+  "require": {
+    "http": "^0.13.0",
+    "private_package": {
+      "version": "^1.0.0",
+      "nest": "company-registry"
+    }
+  }
+}

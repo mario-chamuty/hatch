@@ -16,6 +16,10 @@ pub struct CachedPackageInfo {
     pub cached_at: chrono::DateTime<chrono::Utc>,
     pub size: u64,
     pub dependencies: HashMap<String, String>,
+    #[serde(skip)]
+    pub path: PathBuf,
+    #[serde(skip)]
+    pub modified: chrono::DateTime<chrono::Local>,
 }
 
 /// Manages package storage in the cache
@@ -192,6 +196,8 @@ impl PackageStorage {
             cached_at: chrono::Utc::now(),
             size: Self::calculate_package_size(package_dir)?,
             dependencies: Self::extract_dependencies(package_dir)?,
+            path: package_dir.to_path_buf(),
+            modified: chrono::Local::now(),
         };
 
         let metadata_path = package_dir.join(".hatch_metadata.json");
@@ -206,8 +212,20 @@ impl PackageStorage {
         let package_dir = CachePaths::package_dir(registry, name, version)?;
         let metadata_path = package_dir.join(".hatch_metadata.json");
 
-        let content = std::fs::read_to_string(metadata_path)?;
-        let metadata: CachedPackageInfo = serde_json::from_str(&content)?;
+        let content = std::fs::read_to_string(&metadata_path)?;
+        let mut metadata: CachedPackageInfo = serde_json::from_str(&content)?;
+
+        // Add the path and modified time
+        metadata.path = package_dir;
+        metadata.modified = if let Ok(meta) = std::fs::metadata(&metadata_path) {
+            if let Ok(modified) = meta.modified() {
+                chrono::DateTime::from(modified)
+            } else {
+                chrono::Local::now()
+            }
+        } else {
+            chrono::Local::now()
+        };
 
         Ok(metadata)
     }

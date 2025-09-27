@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use super::dependency::Dependency;
 
 /// Main Hatch manifest structure (supports both YAML and JSON)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,17 +9,22 @@ pub struct HatchManifest {
     pub description: Option<String>,
     pub version: Option<String>,
     pub sdk: SdkConstraints,
-    pub require: Option<HashMap<String, String>>,
+    pub require: Option<HashMap<String, Dependency>>,
     #[serde(rename = "require-dev")]
-    pub require_dev: Option<HashMap<String, String>>,
+    pub require_dev: Option<HashMap<String, Dependency>>,
     pub profiles: Option<HashMap<String, Profile>>,
     pub submodules: Option<Vec<String>>,
     pub repositories: Option<Vec<Repository>>,
+    pub nests: Option<Vec<Nest>>,
     pub build: Option<BuildConfig>,
     pub scripts: Option<HashMap<String, serde_json::Value>>,
     pub overrides: Option<HashMap<String, String>>,
+    #[serde(rename = "disable-pub")]
+    pub disable_pub: Option<bool>,
+    #[serde(rename = "prefer-newest-from")]
+    pub prefer_newest_from: Option<String>, // "nest" or "pub"
     #[serde(rename = "local-packages")]
-    pub local_packages: Option<HashMap<String, String>>,
+    pub local_packages: Option<HashMap<String, String>>, // Deprecated, kept for backward compat
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,10 +35,17 @@ pub struct SdkConstraints {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
-    pub require: Option<HashMap<String, String>>,
+    pub require: Option<HashMap<String, Dependency>>,
     #[serde(rename = "require-dev")]
-    pub require_dev: Option<HashMap<String, String>>,
+    pub require_dev: Option<HashMap<String, Dependency>>,
     pub scripts: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Nest {
+    pub name: String,
+    pub url: String,
+    pub auth: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,9 +83,12 @@ impl Default for HatchManifest {
             profiles: None,
             submodules: None,
             repositories: None,
+            nests: None,
             build: None,
             scripts: None,
             overrides: None,
+            disable_pub: None,
+            prefer_newest_from: None,
             local_packages: None,
         }
     }
@@ -81,11 +97,12 @@ impl Default for HatchManifest {
 impl HatchManifest {
     /// Get all dependencies for a specific profile
     pub fn get_dependencies(&self, profile_name: Option<&str>) -> HashMap<String, String> {
+        use crate::resolver::dependency_utils::DependencyUtils;
         let mut deps = HashMap::new();
 
         // Add base dependencies
         if let Some(require) = &self.require {
-            deps.extend(require.clone());
+            deps.extend(DependencyUtils::to_simple_deps(require));
         }
 
         // Add profile-specific dependencies
@@ -93,7 +110,7 @@ impl HatchManifest {
             if let Some(profiles) = &self.profiles {
                 if let Some(profile) = profiles.get(profile_name) {
                     if let Some(profile_deps) = &profile.require {
-                        deps.extend(profile_deps.clone());
+                        deps.extend(DependencyUtils::to_simple_deps(profile_deps));
                     }
                 }
             }
@@ -104,11 +121,12 @@ impl HatchManifest {
 
     /// Get all dev dependencies for a specific profile
     pub fn get_dev_dependencies(&self, profile_name: Option<&str>) -> HashMap<String, String> {
+        use crate::resolver::dependency_utils::DependencyUtils;
         let mut deps = HashMap::new();
 
         // Add base dev dependencies
         if let Some(require_dev) = &self.require_dev {
-            deps.extend(require_dev.clone());
+            deps.extend(DependencyUtils::to_simple_deps(require_dev));
         }
 
         // Add profile-specific dev dependencies
@@ -116,7 +134,7 @@ impl HatchManifest {
             if let Some(profiles) = &self.profiles {
                 if let Some(profile) = profiles.get(profile_name) {
                     if let Some(profile_dev_deps) = &profile.require_dev {
-                        deps.extend(profile_dev_deps.clone());
+                        deps.extend(DependencyUtils::to_simple_deps(profile_dev_deps));
                     }
                 }
             }

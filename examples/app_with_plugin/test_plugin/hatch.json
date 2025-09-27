@@ -1,0 +1,33 @@
+{
+  "name": "test_plugin",
+  "description": "A test plugin with commands for Hatch",
+  "version": "1.0.0",
+
+  "sdk": {
+    "flutter": "stable",
+    "dart": ">=3.0.0 <4.0.0"
+  },
+
+  "scripts": {
+    "generate": {
+      "command": "echo 'Generating code for test_plugin...'",
+      "description": "Generate boilerplate code"
+    },
+    "test": {
+      "command": "echo 'Running tests for test_plugin...'",
+      "description": "Run plugin tests"
+    },
+    "build": {
+      "command": "echo 'Building test_plugin artifacts...'",
+      "description": "Build plugin artifacts"
+    },
+    "clean": {
+      "command": "echo 'Cleaning test_plugin build artifacts...'",
+      "description": "Clean build artifacts"
+    }
+  },
+
+  "require": {
+    "path": "^1.9.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "test_valid",
+  "description": "Valid dependencies",
+  "sdk": {
+    "flutter": "3.24.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+  "require": {
+    "http": "^0.13.0",
+    "provider": "^6.0.0"
+  }
+}

@@ -2,6 +2,7 @@ pub mod parser;
 pub mod schema;
 pub mod validator;
 pub mod merger;
+pub mod dependency;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ pub use parser::ManifestParser;
 pub use schema::HatchManifest;
 pub use validator::ManifestValidator;
 pub use merger::ManifestMerger;
+pub use dependency::{Dependency, ComplexDependency};
 
 use crate::config::paths::PathResolver;
 

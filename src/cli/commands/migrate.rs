@@ -149,7 +149,10 @@ fn convert_pubspec_to_hatch(pubspec: Value, fvm_config: Option<FvmConfig>) -> Re
         overrides: None,
         local_packages: None,
         repositories: None,
+        nests: None,
         build: None,
+        disable_pub: None,
+        prefer_newest_from: None,
         submodules: None,
     };
 
@@ -182,8 +185,9 @@ fn convert_pubspec_to_hatch(pubspec: Value, fvm_config: Option<FvmConfig>) -> Re
                         }
                     }
 
+                    use crate::manifest::Dependency;
                     let version = extract_dependency_version(value);
-                    require.insert(key_str.to_string(), version);
+                    require.insert(key_str.to_string(), Dependency::Simple(version));
                 }
             }
 
@@ -217,8 +221,9 @@ fn convert_pubspec_to_hatch(pubspec: Value, fvm_config: Option<FvmConfig>) -> Re
                         continue;
                     }
 
+                    use crate::manifest::Dependency;
                     let version = extract_dependency_version(value);
-                    require_dev.insert(key_str.to_string(), version);
+                    require_dev.insert(key_str.to_string(), Dependency::Simple(version));
                 }
             }
 

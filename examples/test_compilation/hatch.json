@@ -1,0 +1,11 @@
+{
+  "name": "test_compilation",
+  "description": "Test that Dart uses Hatch packages",
+  "sdk": {
+    "flutter": "3.24.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+  "require": {
+    "http": "^0.13.0"
+  }
+}

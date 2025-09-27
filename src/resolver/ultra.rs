@@ -7,11 +7,15 @@ use log::{debug, info, warn};
 use std::time::Instant;
 
 use crate::manifest::schema::HatchManifest;
+use crate::manifest::Dependency;
 use crate::registry::pub_dev::PubDevRegistry;
 use crate::registry::traits::{PackageVersion, VersionConstraint, Registry};
-use super::smart::VersionAlias;
+use super::version_alias::VersionAlias;
+use super::dependency_utils::DependencyUtils;
 use crate::cache::metadata_cache::MetadataCache;
 use crate::cli::verbosity;
+use crate::git::GitResolver;
+use std::path::PathBuf;
 
 pub struct UltraResolver {
     registry: PubDevRegistry,
@@ -52,9 +56,8 @@ impl UltraResolver {
             }
         }
 
-        if let Some(local_packages) = &manifest.local_packages {
-            resolver.local_packages = local_packages.clone();
-        }
+        // Extract local packages from new dependency format
+        resolver.local_packages = DependencyUtils::extract_local_packages(&manifest);
 
         resolver
     }
@@ -63,15 +66,80 @@ impl UltraResolver {
         let total_start = Instant::now();
         info!("Starting ultra-fast dependency resolution");
 
-        // Collect all root dependencies
+        // Handle SDK dependencies first
+        let mut sdk_deps = Vec::new();
+        if let Some(deps) = &manifest.require {
+            sdk_deps.extend(DependencyUtils::extract_sdk_deps(deps));
+        }
+        if let Some(dev_deps) = &manifest.require_dev {
+            sdk_deps.extend(DependencyUtils::extract_sdk_deps(dev_deps));
+        }
+
+        for (name, sdk) in sdk_deps {
+            if sdk == "flutter" {
+                println!("📱 Resolving SDK dependency: {} (Flutter SDK)", name);
+
+                // Get Flutter SDK path
+                let flutter_sdk = std::env::var("FLUTTER_ROOT")
+                    .or_else(|_| std::env::var("FLUTTER_HOME"))
+                    .unwrap_or_else(|_| {
+                        // Try to detect Flutter SDK using FVM or standard installation
+                        if let Ok(output) = std::process::Command::new("flutter")
+                            .arg("--version")
+                            .arg("--machine")
+                            .output()
+                        {
+                            // Flutter is in PATH
+                            "flutter".to_string()
+                        } else {
+                            // Default Flutter SDK location
+                            dirs::home_dir()
+                                .map(|p| p.join("fvm/default").to_string_lossy().to_string())
+                                .unwrap_or_else(|| "flutter".to_string())
+                        }
+                    });
+
+                self.resolved.insert(name.clone(), "sdk".to_string());
+                // SDK packages don't need paths as they're handled by Flutter itself
+            } else {
+                warn!("Unknown SDK type '{}' for package '{}'", sdk, name);
+            }
+        }
+
+        // Handle Git dependencies
+        let mut git_deps = Vec::new();
+        if let Some(deps) = &manifest.require {
+            git_deps.extend(DependencyUtils::extract_git_deps(deps));
+        }
+        if let Some(dev_deps) = &manifest.require_dev {
+            git_deps.extend(DependencyUtils::extract_git_deps(dev_deps));
+        }
+
+        for (name, git_url, git_ref) in git_deps {
+            println!("🔗 Resolving git dependency: {}", name);
+            let cache_dir = GitResolver::get_cache_dir(&git_url, git_ref.as_deref())?;
+
+            if !GitResolver::is_valid_git_repo(&cache_dir, &git_url) {
+                println!("   Cloning {}...", git_url);
+                GitResolver::clone_repository(&git_url, git_ref.as_deref(), &cache_dir)?;
+            } else {
+                println!("   Using cached git repository");
+            }
+
+            self.resolved.insert(name.clone(), "git".to_string());
+            self.resolved_paths.insert(name, cache_dir);
+        }
+
+        // Collect all root dependencies (convert from Dependency to simple strings)
         let mut all_deps = HashMap::new();
 
         if let Some(deps) = &manifest.require {
-            all_deps.extend(deps.clone());
+            // Extract only registry dependencies (not local or git)
+            all_deps.extend(DependencyUtils::extract_registry_deps(deps));
         }
 
         if let Some(dev_deps) = &manifest.require_dev {
-            all_deps.extend(dev_deps.clone());
+            all_deps.extend(DependencyUtils::extract_registry_deps(dev_deps));
         }
 
         println!("🔍 Resolving {} direct dependencies...", all_deps.len());

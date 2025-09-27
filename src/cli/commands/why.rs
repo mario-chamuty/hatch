@@ -28,20 +28,20 @@ pub async fn execute(package: String) -> Result<()> {
     let mut constraint = String::new();
 
     if let Some(deps) = &manifest.require {
-        if let Some(c) = deps.get(&package) {
+        if let Some(dep) = deps.get(&package) {
             println!("📦 '{}' is a direct dependency", package);
-            println!("   Constraint: {}", c);
+            println!("   Constraint: {}", dep);
             found_direct = true;
-            constraint = c.clone();
+            constraint = dep.version().to_string();
         }
     }
 
     if let Some(dev_deps) = &manifest.require_dev {
-        if let Some(c) = dev_deps.get(&package) {
+        if let Some(dep) = dev_deps.get(&package) {
             println!("🔧 '{}' is a dev dependency", package);
-            println!("   Constraint: {}", c);
+            println!("   Constraint: {}", dep);
             found_direct = true;
-            constraint = c.clone();
+            constraint = dep.version().to_string();
         }
     }
 

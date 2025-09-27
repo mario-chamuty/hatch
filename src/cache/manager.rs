@@ -25,6 +25,16 @@ impl CacheManager {
         name: &str,
         version: &str,
     ) -> Result<PathBuf> {
+        self.get_package_with_checksum(registry, name, version, None).await
+    }
+
+    pub async fn get_package_with_checksum(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+        checksum: Option<&str>,
+    ) -> Result<PathBuf> {
         if let Some(cached_path) = PackageStorage::get_package_path(registry, name, version)? {
             info!("Using cached package: {}@{}", name, version);
             return Ok(cached_path);
@@ -40,7 +50,7 @@ impl CacheManager {
             println!("   └── Context: This indicates the parallel download batch missed this package");
         }
 
-        self.download_and_cache(registry, name, version).await
+        self.download_and_cache_with_checksum(registry, name, version, checksum).await
     }
 
     /// Get package for parallel download context - doesn't warn about sequential downloads
@@ -49,6 +59,16 @@ impl CacheManager {
         registry: &str,
         name: &str,
         version: &str,
+    ) -> Result<PathBuf> {
+        self.get_package_parallel_with_checksum(registry, name, version, None).await
+    }
+
+    pub async fn get_package_parallel_with_checksum(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+        checksum: Option<&str>,
     ) -> Result<PathBuf> {
         if let Some(cached_path) = PackageStorage::get_package_path(registry, name, version)? {
             if crate::cli::verbosity::is_debug() {
@@ -65,7 +85,7 @@ impl CacheManager {
             debug!("Downloading {}@{} as part of parallel batch", name, version);
         }
 
-        self.download_and_cache(registry, name, version).await
+        self.download_and_cache_with_checksum(registry, name, version, checksum).await
     }
 
     async fn download_and_cache(
@@ -74,13 +94,23 @@ impl CacheManager {
         name: &str,
         version: &str,
     ) -> Result<PathBuf> {
+        self.download_and_cache_with_checksum(registry, name, version, None).await
+    }
+
+    async fn download_and_cache_with_checksum(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+        checksum: Option<&str>,
+    ) -> Result<PathBuf> {
         let download_start = std::time::Instant::now();
 
         if crate::cli::verbosity::is_debug() {
             println!("⬇️  DOWNLOADING: {}@{} from {}", name, version, registry);
         }
 
-        let archive_path = self.downloader.download(registry, name, version).await?;
+        let archive_path = self.downloader.download_with_checksum(registry, name, version, checksum).await?;
         let download_time = download_start.elapsed();
 
         if crate::cli::verbosity::is_debug() {
@@ -180,7 +210,16 @@ impl CacheManager {
                 .unwrap_or_else(|_| path.clone());
 
             let root_uri = if cfg!(windows) {
-                format!("file:///{}", abs_path.display().to_string().replace('\\', "/"))
+                // Convert Windows path to proper file URI
+                // C:\Users\... -> file:///C:/Users/...
+                let path_str = abs_path.display().to_string().replace('\\', "/");
+                // Remove UNC prefix if present (\\?\)
+                let path_str = if path_str.starts_with("//?/") {
+                    path_str[4..].to_string()
+                } else {
+                    path_str
+                };
+                format!("file:///{}", path_str)
             } else {
                 format!("file://{}", abs_path.display())
             };
@@ -229,7 +268,15 @@ impl CacheManager {
                     .unwrap_or_else(|_| lib_path.clone());
 
                 let uri = if cfg!(windows) {
-                    format!("file:///{}/", abs_path.display().to_string().replace('\\', "/"))
+                    // Convert Windows path to proper file URI
+                    let path_str = abs_path.display().to_string().replace('\\', "/");
+                    // Remove UNC prefix if present (\\?\)
+                    let path_str = if path_str.starts_with("//?/") {
+                        path_str[4..].to_string()
+                    } else {
+                        path_str
+                    };
+                    format!("file:///{}/", path_str)
                 } else {
                     format!("file://{}/", abs_path.display())
                 };

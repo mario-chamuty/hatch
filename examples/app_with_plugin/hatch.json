@@ -1,0 +1,23 @@
+{
+  "name": "app_with_plugin",
+  "description": "Test app that uses test_plugin via relative path",
+  "version": "1.0.0",
+
+  "sdk": {
+    "flutter": "stable",
+    "dart": ">=3.0.0 <4.0.0"
+  },
+
+  "require": {
+    "cupertino_icons": "^1.0.8",
+    "test_plugin": {
+      "version": "any",
+      "path": "../test_plugin"
+    }
+  },
+
+  "scripts": {
+    "setup": "echo 'Setting up app_with_plugin...'",
+    "dev": "flutter run"
+  }
+}

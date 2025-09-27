@@ -228,4 +228,18 @@ pub enum CacheCommands {
         /// Package version (optional)
         version: Option<String>,
     },
+    /// List all cached packages
+    List {
+        /// Show detailed information
+        #[arg(short, long)]
+        detailed: bool,
+    },
+    /// Remove unused packages from cache
+    Prune {
+        /// Dry run - show what would be removed without removing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Verify cache integrity
+    Verify,
 }

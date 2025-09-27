@@ -26,6 +26,13 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
         Some("hatch.local.json"),
     )?;
 
+    // Validate dependencies for conflicts
+    use crate::manifest::validator::ManifestValidator;
+    use anyhow::anyhow;
+    if let Err(e) = ManifestValidator::validate(&manifest) {
+        return Err(anyhow!("Manifest validation failed: {}", e));
+    }
+
     ScriptRunner::run_pre_install(&manifest)?;
     ScriptRunner::run_profile_scripts(&manifest, &profile_name, "pre-install")?;
 
@@ -89,10 +96,9 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
                 version: version.clone(),
                 dependencies: deps,
                 source_constraint: manifest.require.as_ref()
-                    .and_then(|r| r.get(name))
-                    .or_else(|| manifest.require_dev.as_ref().and_then(|r| r.get(name)))
-                    .unwrap_or(&"any".to_string())
-                    .clone(),
+                    .and_then(|r| r.get(name).map(|d| d.version().to_string()))
+                    .or_else(|| manifest.require_dev.as_ref().and_then(|r| r.get(name).map(|d| d.version().to_string())))
+                    .unwrap_or_else(|| "any".to_string()),
             }
         })
         .collect();

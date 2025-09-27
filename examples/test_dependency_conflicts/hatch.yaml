@@ -1,0 +1,50 @@
+name: test_dependency_conflicts
+description: Test validation of conflicting dependency sources
+
+sdk:
+  flutter: "3.24.2"
+  dart: ">=3.5.0 <4.0.0"
+
+require:
+  # Valid - simple string dependency
+  http: ^0.13.0
+
+  # Valid - path dependency
+  local_package:
+    version: any
+    path: ../local_package
+
+  # Valid - git dependency with ref
+  git_package:
+    version: any
+    git: https://github.com/example/package.git
+    ref: main
+
+  # Valid - nest registry dependency
+  private_package:
+    version: ^1.0.0
+    nest: company-registry
+
+  # Invalid - conflicting sources (git + path)
+  conflict_git_path:
+    version: any
+    git: https://github.com/example/package.git
+    path: ../local
+
+  # Invalid - conflicting sources (git + nest)
+  conflict_git_nest:
+    version: any
+    git: https://github.com/example/package.git
+    nest: company-registry
+
+  # Invalid - conflicting sources (all three)
+  conflict_all:
+    version: any
+    git: https://github.com/example/package.git
+    path: ../local
+    nest: company-registry
+
+  # Invalid - ref without git
+  invalid_ref:
+    version: ^1.0.0
+    ref: main

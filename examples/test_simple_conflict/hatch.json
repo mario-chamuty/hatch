@@ -1,0 +1,16 @@
+{
+  "name": "test_simple_conflict",
+  "description": "Simple test for conflicting sources",
+  "sdk": {
+    "flutter": "3.24.2",
+    "dart": ">=3.5.0 <4.0.0"
+  },
+  "require": {
+    "http": "^0.13.0",
+    "conflict_package": {
+      "version": "any",
+      "git": "https://github.com/example/package.git",
+      "path": "../local"
+    }
+  }
+}

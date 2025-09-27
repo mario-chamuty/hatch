@@ -225,3 +225,4 @@ src/
 5. Request code review
 
 This methodology ensures consistent development practices and clear progress tracking throughout the Hatch implementation.
+- always use fvm flutter version 3.35.2

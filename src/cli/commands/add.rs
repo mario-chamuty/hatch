@@ -42,16 +42,20 @@ pub async fn execute(package: String, version: Option<String>, dev: bool) -> Res
         }
     };
 
+    use crate::manifest::Dependency;
+
+    let dependency = Dependency::Simple(constraint);
+
     if dev {
         if manifest.require_dev.is_none() {
             manifest.require_dev = Some(HashMap::new());
         }
-        manifest.require_dev.as_mut().unwrap().insert(package.clone(), constraint);
+        manifest.require_dev.as_mut().unwrap().insert(package.clone(), dependency);
     } else {
         if manifest.require.is_none() {
             manifest.require = Some(HashMap::new());
         }
-        manifest.require.as_mut().unwrap().insert(package.clone(), constraint);
+        manifest.require.as_mut().unwrap().insert(package.clone(), dependency);
     }
 
     let manifest_content = serde_json::to_string_pretty(&manifest)?;

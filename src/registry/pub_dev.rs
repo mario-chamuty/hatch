@@ -97,6 +97,7 @@ impl Registry for PubDevRegistry {
                     flutter_sdk: pubspec.environment.as_ref()
                         .and_then(|env| env.get("flutter"))
                         .cloned(),
+                    archive_sha256: version_info.archive_sha256.clone(),
                 };
                 versions.push(version);
             }
@@ -132,7 +133,7 @@ impl Registry for PubDevRegistry {
 
         if let Some(pubspec) = &version_info.pubspec {
             Ok(PackageVersion {
-                version: version_info.version,
+                version: version_info.version.clone(),
                 description: pubspec.description.clone(),
                 homepage: pubspec.homepage.clone(),
                 repository: pubspec.repository.clone(),
@@ -153,6 +154,7 @@ impl Registry for PubDevRegistry {
                 flutter_sdk: pubspec.environment.as_ref()
                     .and_then(|env| env.get("flutter"))
                     .cloned(),
+                archive_sha256: version_info.archive_sha256,
             })
         } else {
             Err(anyhow!("Invalid version data for {}@{}", name, version))
@@ -199,6 +201,7 @@ impl Registry for PubDevRegistry {
                 flutter_sdk: package.latest.pubspec.environment.as_ref()
                     .and_then(|env| env.get("flutter"))
                     .cloned(),
+                archive_sha256: None, // Search results don't include checksums
             };
 
             results.push(PackageMetadata {
@@ -257,6 +260,7 @@ struct PubDevVersionInfo {
     version: String,
     published: String,
     pubspec: Option<PubDevPubspec>,
+    archive_sha256: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

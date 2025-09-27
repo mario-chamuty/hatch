@@ -1,6 +1,7 @@
 pub mod git;
 pub mod fs;
 pub mod progress;
+pub mod env;
 
 /// Utility functions and helpers
 pub struct Utilities;

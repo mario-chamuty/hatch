@@ -17,6 +17,8 @@ mod cache;
 mod lockfile;
 mod scripts;
 mod branding;
+mod auth;
+mod git;
 
 use cli::{Cli, Commands, verbosity, CacheCommands};
 
@@ -145,6 +147,9 @@ async fn main() -> Result<()> {
                 CacheCommands::Remove { package, version } => {
                     cli::commands::cache::remove(&package, version.as_deref()).await
                 }
+                CacheCommands::List { detailed } => cli::commands::cache::list(detailed).await,
+                CacheCommands::Prune { dry_run } => cli::commands::cache::prune(dry_run).await,
+                CacheCommands::Verify => cli::commands::cache::verify().await,
             }
         }
     }

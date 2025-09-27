@@ -21,18 +21,66 @@ impl ManifestParser {
         Self::parse_json(&content)
     }
 
+    /// Parse a JSON file directly (for dependency command discovery)
+    pub fn parse_json_file<P: AsRef<Path>>(path: P) -> Result<HatchManifest> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read file: {}", path.display()))?;
+        Self::parse_json(&content)
+    }
+
+    /// Parse a YAML file directly (for backward compatibility in dependencies)
+    pub fn parse_yaml_file<P: AsRef<Path>>(path: P) -> Result<HatchManifest> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read file: {}", path.display()))?;
+
+        // Parse as YAML and convert to HatchManifest
+        serde_yaml::from_str(&content)
+            .with_context(|| format!("Failed to parse YAML file: {}", path.display()))
+    }
+
     pub fn parse_json(content: &str) -> Result<HatchManifest> {
         // Strip // comments to support JSON with comments
         let content = Self::strip_json_comments(content);
 
-        serde_json::from_str(&content)
-            .with_context(|| "Failed to parse JSON manifest")
+        // Parse JSON
+        let mut value: serde_json::Value = serde_json::from_str(&content)
+            .with_context(|| "Failed to parse JSON manifest")?;
+
+        // Expand environment variables
+        crate::utils::env::expand_json_env_vars(&mut value);
+
+        // Convert to manifest
+        serde_json::from_value(value)
+            .with_context(|| "Failed to deserialize manifest after env var expansion")
     }
 
     fn strip_json_comments(content: &str) -> String {
-        let re = Regex::new(r"//[^
-]*").unwrap();
-        let content = re.replace_all(content, "");
+        // Process line by line to avoid matching URLs
+        let lines: Vec<String> = content.lines().map(|line| {
+            // Find // but not in strings or URLs
+            if let Some(pos) = line.find("//") {
+                // Check if this is likely a URL (preceded by : or /)
+                if pos > 0 {
+                    let prev_char = line.chars().nth(pos - 1);
+                    if prev_char == Some(':') || prev_char == Some('/') {
+                        // It's likely a URL, keep the whole line
+                        line.to_string()
+                    } else {
+                        // It's a comment, strip from // onwards
+                        line[..pos].to_string()
+                    }
+                } else {
+                    // Comment at start of line
+                    String::new()
+                }
+            } else {
+                line.to_string()
+            }
+        }).collect();
+
+        let content = lines.join("\n");
 
         // Also remove /* */ style comments
         let re = Regex::new(r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/").unwrap();

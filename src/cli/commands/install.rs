@@ -52,6 +52,12 @@ pub async fn execute_full(profile: Option<String>, relax_constraints: bool, forc
         Some("hatch.local.json"),
     ).map_err(|e| anyhow!("Failed to parse manifest: {}", e))?;
 
+    // Validate dependencies for conflicts
+    use crate::manifest::validator::ManifestValidator;
+    if let Err(e) = ManifestValidator::validate(&manifest) {
+        return Err(anyhow!("Manifest validation failed: {}", e));
+    }
+
     ScriptRunner::run_pre_install(&manifest)?;
     ScriptRunner::run_profile_scripts(&manifest, &profile_name, "pre-install")?;
 
@@ -65,22 +71,25 @@ pub async fn execute_full(profile: Option<String>, relax_constraints: bool, forc
         }
     }
 
+    use crate::resolver::dependency_utils::DependencyUtils;
+
     let mut dependencies = HashMap::new();
 
     if let Some(require) = &manifest.require {
-        dependencies.extend(require.clone());
+        // Convert Dependency to simple String format for registry deps only
+        dependencies.extend(DependencyUtils::extract_registry_deps(require));
     }
 
     if profile_name == "dev" || profile_name == "development" {
         if let Some(require_dev) = &manifest.require_dev {
-            dependencies.extend(require_dev.clone());
+            dependencies.extend(DependencyUtils::extract_registry_deps(require_dev));
         }
     }
 
     if let Some(profiles) = &manifest.profiles {
         if let Some(profile) = profiles.get(&profile_name) {
             if let Some(profile_deps) = &profile.require {
-                dependencies.extend(profile_deps.clone());
+                dependencies.extend(DependencyUtils::extract_registry_deps(profile_deps));
             }
         }
     }
@@ -174,16 +183,34 @@ pub async fn execute_full(profile: Option<String>, relax_constraints: bool, forc
     let mut packages_to_download = Vec::new();
     let mut downloaded_packages = HashMap::new();
 
+    // Collect packages and fetch their checksums from metadata
     for package in &resolution_result.resolved_packages {
         if package.name == "flutter" {
             continue;
         }
-        packages_to_download.push(("pub.dev".to_string(), package.name.clone(), package.version.clone()));
+
+        // Get checksum from metadata if available
+        let checksum = if let Some(versions) = available_versions.get(&package.name) {
+            versions.iter()
+                .find(|v| v.version == package.version)
+                .and_then(|v| v.archive_sha256.as_ref())
+                .map(|s| s.clone())
+        } else {
+            None
+        };
+
+        packages_to_download.push(("pub.dev".to_string(), package.name.clone(), package.version.clone(), checksum));
     }
 
-    for (registry, name, version) in packages_to_download {
+    for (registry, name, version, checksum) in packages_to_download {
         print!("   Downloading {}@{}... ", name, version);
-        match cache_manager.get_package(&registry, &name, &version).await {
+        let result = if let Some(ref checksum_str) = checksum {
+            cache_manager.get_package_with_checksum(&registry, &name, &version, Some(checksum_str.as_str())).await
+        } else {
+            cache_manager.get_package(&registry, &name, &version).await
+        };
+
+        match result {
             Ok(path) => {
                 println!("✓");
                 downloaded_packages.insert(format!("{}@{}", name, version), path);
