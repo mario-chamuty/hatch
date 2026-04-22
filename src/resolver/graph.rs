@@ -1,8 +1,37 @@
 use anyhow::{anyhow, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use log::{debug, info, warn};
 
-use crate::registry::traits::{VersionConstraint, PackageVersion, DependencySource};
+use crate::registry::traits::{VersionConstraint, DependencySource};
+
+/// Final resolution output consumed by the install path.
+///
+/// - `resolved`: every chosen `(name, version)` pair
+/// - `deps`: direct dependencies of each resolved package (populated from
+///   the registry metadata at selection time)
+/// - `resolved_paths`: path-source and git-source locations keyed by
+///   package name (e.g. local packages already on disk)
+#[derive(Debug, Clone, Default)]
+pub struct ResolutionGraph {
+    pub resolved: HashMap<String, String>,
+    pub deps: HashMap<String, HashMap<String, String>>,
+    pub resolved_paths: HashMap<String, PathBuf>,
+}
+
+impl ResolutionGraph {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn from_resolved(resolved: HashMap<String, String>) -> Self {
+        Self {
+            resolved,
+            deps: HashMap::new(),
+            resolved_paths: HashMap::new(),
+        }
+    }
+}
 
 /// Dependency graph node
 #[derive(Debug, Clone)]
@@ -197,11 +226,21 @@ impl DependencyGraph {
         match (c1, c2) {
             (Any, _) | (_, Any) => true,
             (Exact(v1), Exact(v2)) => v1 == v2,
-            (Exact(v), constraint) | (constraint, Exact(v)) => constraint.satisfies(v),
-            _ => {
-                // For complex constraints, we'd need a more sophisticated check
-                // For now, assume they're compatible if they're not obviously conflicting
-                true
+            (Exact(v), constraint) | (constraint, Exact(v)) => {
+                // Use the parsed interval representation so future non-
+                // contiguous constraint shapes (e.g. ranges) fall through
+                // the same fast path.
+                let Ok(parsed) = constraint.to_parsed() else { return false };
+                let Ok(ver) = semver::Version::parse(v) else { return false };
+                parsed.contains(&ver)
+            }
+            (a, b) => {
+                // Interval intersection: if two constraints have non-empty
+                // overlap they are (at least) potentially compatible.
+                match (a.to_parsed(), b.to_parsed()) {
+                    (Ok(pa), Ok(pb)) => pa.intersect(&pb).is_some(),
+                    _ => true,
+                }
             }
         }
     }
@@ -299,34 +338,48 @@ impl DependencyGraph {
     }
 
     fn calculate_max_depth(&self) -> usize {
+        let mut memo: HashMap<String, usize> = HashMap::new();
         let mut max_depth = 0;
 
         for node in self.nodes.keys() {
-            let depth = self.calculate_depth_from_node(node, &mut HashSet::new());
+            let depth = self.calculate_depth_from_node(node, &mut HashSet::new(), &mut memo);
             max_depth = max_depth.max(depth);
         }
 
         max_depth
     }
 
-    fn calculate_depth_from_node(&self, node: &str, visited: &mut HashSet<String>) -> usize {
-        if visited.contains(node) {
-            return 0; // Avoid infinite loops
+    fn calculate_depth_from_node(
+        &self,
+        node: &str,
+        visiting: &mut HashSet<String>,
+        memo: &mut HashMap<String, usize>,
+    ) -> usize {
+        // Return memoized result if available
+        if let Some(&depth) = memo.get(node) {
+            return depth;
         }
 
-        visited.insert(node.to_string());
+        // Cycle detection
+        if visiting.contains(node) {
+            return 0;
+        }
+
+        visiting.insert(node.to_string());
 
         let max_child_depth = self.edges.get(node)
             .map(|edges| {
                 edges.iter()
-                    .map(|child| self.calculate_depth_from_node(child, visited))
+                    .map(|child| self.calculate_depth_from_node(child, visiting, memo))
                     .max()
                     .unwrap_or(0)
             })
             .unwrap_or(0);
 
-        visited.remove(node);
-        max_child_depth + 1
+        visiting.remove(node);
+        let depth = max_child_depth + 1;
+        memo.insert(node.to_string(), depth);
+        depth
     }
 }
 

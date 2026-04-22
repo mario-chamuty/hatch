@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use regex::Regex;
+use std::collections::HashMap;
 use super::schema::HatchManifest;
 use super::Dependency;
 
@@ -30,41 +31,11 @@ impl ManifestValidator {
 
         // Validate dependencies
         if let Some(deps) = &manifest.require {
-            for (name, dep) in deps {
-                Self::validate_package_name(name)?;
-                Self::validate_version_constraint(dep.version())?;
-
-                // Validate dependency sources for conflicts
-                if let Err(e) = dep.validate(name) {
-                    return Err(anyhow!(e));
-                }
-
-                // Validate nest references
-                if let Dependency::Complex(complex) = dep {
-                    if let Err(e) = complex.validate_nest(name, &available_nests) {
-                        return Err(anyhow!(e));
-                    }
-                }
-            }
+            Self::validate_dependency_map(deps, &available_nests)?;
         }
 
         if let Some(dev_deps) = &manifest.require_dev {
-            for (name, dep) in dev_deps {
-                Self::validate_package_name(name)?;
-                Self::validate_version_constraint(dep.version())?;
-
-                // Validate dependency sources for conflicts
-                if let Err(e) = dep.validate(name) {
-                    return Err(anyhow!(e));
-                }
-
-                // Validate nest references
-                if let Dependency::Complex(complex) = dep {
-                    if let Err(e) = complex.validate_nest(name, &available_nests) {
-                        return Err(anyhow!(e));
-                    }
-                }
-            }
+            Self::validate_dependency_map(dev_deps, &available_nests)?;
         }
 
         // Check for common warnings
@@ -179,7 +150,8 @@ impl ManifestValidator {
         }
 
         // Basic semantic version constraint validation
-        let re = Regex::new(r"^[\^~>=<\s\d\.\*]+$").unwrap();
+        // Allow digits, dots, operators, spaces, wildcards, and pre-release/build suffixes (-alpha, +build)
+        let re = Regex::new(r"^[\^~>=<\s\d\.\*a-zA-Z\-\+]+$").unwrap();
         if !re.is_match(constraint) {
             return Err(anyhow!(
                 "Invalid version constraint '{}'. Expected format: ^X.Y.Z, ~X.Y.Z, >=X.Y.Z, any, *, etc.",
@@ -187,6 +159,34 @@ impl ManifestValidator {
             ));
         }
 
+        Ok(())
+    }
+
+    /// Validate a map of dependencies
+    fn validate_dependency_map(
+        deps: &HashMap<String, Dependency>,
+        available_nests: &[String],
+    ) -> Result<()> {
+        for (name, dep) in deps {
+            Self::validate_package_name(name)?;
+
+            // Skip version constraint validation for non-registry deps (git, path, sdk)
+            if !dep.is_git() && !dep.is_local() && !dep.is_sdk() {
+                Self::validate_version_constraint(dep.version())?;
+            }
+
+            // Validate dependency sources for conflicts
+            if let Err(e) = dep.validate(name) {
+                return Err(anyhow!(e));
+            }
+
+            // Validate nest references
+            if let Dependency::Complex(complex) = dep {
+                if let Err(e) = complex.validate_nest(name, available_nests) {
+                    return Err(anyhow!(e));
+                }
+            }
+        }
         Ok(())
     }
 

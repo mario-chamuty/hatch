@@ -26,7 +26,10 @@ pub async fn execute(packages: Vec<String>) -> Result<()> {
     std::fs::write("hatch.json", manifest_content)?;
 
     println!("\n✅ {} complete!", "Update".green().bold());
-    println!("\n💡 Run {} to install the updated dependencies", "hatch install".cyan());
+
+    // Automatically run install after update
+    println!("\n📦 Installing updated dependencies...");
+    super::install_smart::execute(None).await?;
 
     Ok(())
 }

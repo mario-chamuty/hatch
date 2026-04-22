@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use log::{debug, info, warn};
 
-use super::downloader::PackageDownloader;
+use super::downloader::{PackageDownloader, ALLOW_UNCHECKSUMMED_SENTINEL};
 use super::storage::PackageStorage;
 use super::paths::CachePaths;
 
@@ -19,21 +19,14 @@ impl CacheManager {
         }
     }
 
-    pub async fn get_package(
-        &self,
-        registry: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<PathBuf> {
-        self.get_package_with_checksum(registry, name, version, None).await
-    }
-
+    /// Get a package, requiring a checksum. Pass
+    /// [`ALLOW_UNCHECKSUMMED_SENTINEL`] to explicitly bypass.
     pub async fn get_package_with_checksum(
         &self,
         registry: &str,
         name: &str,
         version: &str,
-        checksum: Option<&str>,
+        checksum: &str,
     ) -> Result<PathBuf> {
         if let Some(cached_path) = PackageStorage::get_package_path(registry, name, version)? {
             info!("Using cached package: {}@{}", name, version);
@@ -53,22 +46,12 @@ impl CacheManager {
         self.download_and_cache_with_checksum(registry, name, version, checksum).await
     }
 
-    /// Get package for parallel download context - doesn't warn about sequential downloads
-    pub async fn get_package_parallel(
-        &self,
-        registry: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<PathBuf> {
-        self.get_package_parallel_with_checksum(registry, name, version, None).await
-    }
-
     pub async fn get_package_parallel_with_checksum(
         &self,
         registry: &str,
         name: &str,
         version: &str,
-        checksum: Option<&str>,
+        checksum: &str,
     ) -> Result<PathBuf> {
         if let Some(cached_path) = PackageStorage::get_package_path(registry, name, version)? {
             if crate::cli::verbosity::is_debug() {
@@ -88,21 +71,12 @@ impl CacheManager {
         self.download_and_cache_with_checksum(registry, name, version, checksum).await
     }
 
-    async fn download_and_cache(
-        &self,
-        registry: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<PathBuf> {
-        self.download_and_cache_with_checksum(registry, name, version, None).await
-    }
-
     async fn download_and_cache_with_checksum(
         &self,
         registry: &str,
         name: &str,
         version: &str,
-        checksum: Option<&str>,
+        checksum: &str,
     ) -> Result<PathBuf> {
         let download_start = std::time::Instant::now();
 
@@ -123,9 +97,31 @@ impl CacheManager {
         let version_str = version.to_string();
         let archive_path_clone = archive_path.clone();
         let extract_start = std::time::Instant::now();
-        let cached_path = tokio::task::spawn_blocking(move || {
+        // Stream B: synchronous cleanup (do not reorder with Stream A's debloat invocation)
+        let store_result = tokio::task::spawn_blocking(move || {
             PackageStorage::store_package(&registry_str, &name_str, &version_str, &archive_path_clone)
-        }).await??;
+        }).await?;
+
+        let cached_path = match store_result {
+            Ok(p) => p,
+            Err(e) => {
+                // Extraction failed – tear down any partial package dir AND
+                // the tarball so we never leave half-written state behind.
+                if let Ok(pkg_dir) = CachePaths::package_dir(registry, name, version) {
+                    if pkg_dir.exists() {
+                        if let Err(rm) = tokio::fs::remove_dir_all(&pkg_dir).await {
+                            warn!("Failed to remove partial package dir {}: {}", pkg_dir.display(), rm);
+                        }
+                    }
+                }
+                if archive_path.exists() {
+                    if let Err(rm) = tokio::fs::remove_file(&archive_path).await {
+                        warn!("Failed to remove tarball {} after extraction error: {}", archive_path.display(), rm);
+                    }
+                }
+                return Err(e);
+            }
+        };
         let extract_time = extract_start.elapsed();
 
         if crate::cli::verbosity::is_debug() {
@@ -134,25 +130,29 @@ impl CacheManager {
                 (download_time + extract_time).as_secs_f32());
         }
 
-        // Clean up in background
-        tokio::spawn(async move {
-            if let Err(e) = tokio::fs::remove_file(&archive_path).await {
-                warn!("Failed to clean up download file: {}", e);
-            }
-        });
+        // Stream B: synchronous cleanup on success – block until the tarball
+        // is gone (or we've logged the failure). We previously fire-and-forgot
+        // this with `tokio::spawn`, which meant a short-lived CLI could exit
+        // before the cleanup ran, leaving stale downloads on disk.
+        if let Err(e) = tokio::fs::remove_file(&archive_path).await {
+            warn!("Failed to clean up download file {}: {}", archive_path.display(), e);
+        }
 
         Ok(cached_path)
     }
 
+    /// Batch fetch packages. Checksums are required – callers that genuinely
+    /// want to skip verification must pass [`ALLOW_UNCHECKSUMMED_SENTINEL`]
+    /// as the checksum for that entry.
     pub async fn get_packages(
         &self,
-        packages: Vec<(String, String, String)>, // (registry, name, version)
+        packages: Vec<(String, String, String, String)>, // (registry, name, version, checksum)
     ) -> Result<HashMap<String, PathBuf>> {
         let mut results = HashMap::new();
 
-        for (registry, name, version) in packages {
+        for (registry, name, version, checksum) in packages {
             let key = format!("{}@{}", name, version);
-            match self.get_package(&registry, &name, &version).await {
+            match self.get_package_with_checksum(&registry, &name, &version, &checksum).await {
                 Ok(path) => {
                     results.insert(key, path);
                 }
@@ -209,20 +209,7 @@ impl CacheManager {
             let abs_path = path.canonicalize()
                 .unwrap_or_else(|_| path.clone());
 
-            let root_uri = if cfg!(windows) {
-                // Convert Windows path to proper file URI
-                // C:\Users\... -> file:///C:/Users/...
-                let path_str = abs_path.display().to_string().replace('\\', "/");
-                // Remove UNC prefix if present (\\?\)
-                let path_str = if path_str.starts_with("//?/") {
-                    path_str[4..].to_string()
-                } else {
-                    path_str
-                };
-                format!("file:///{}", path_str)
-            } else {
-                format!("file://{}", abs_path.display())
-            };
+            let root_uri = Self::path_to_file_uri(&abs_path);
 
             packages_array.push(serde_json::json!({
                 "name": name,
@@ -267,19 +254,8 @@ impl CacheManager {
                 let abs_path = lib_path.canonicalize()
                     .unwrap_or_else(|_| lib_path.clone());
 
-                let uri = if cfg!(windows) {
-                    // Convert Windows path to proper file URI
-                    let path_str = abs_path.display().to_string().replace('\\', "/");
-                    // Remove UNC prefix if present (\\?\)
-                    let path_str = if path_str.starts_with("//?/") {
-                        path_str[4..].to_string()
-                    } else {
-                        path_str
-                    };
-                    format!("file:///{}/", path_str)
-                } else {
-                    format!("file://{}/", abs_path.display())
-                };
+                let base_uri = Self::path_to_file_uri(&abs_path);
+                let uri = format!("{}/", base_uri);
 
                 lines.push(format!("{}:{}", name, uri));
             }
@@ -290,6 +266,21 @@ impl CacheManager {
 
         info!("Generated .packages file with {} packages", packages.len());
         Ok(())
+    }
+
+    /// Convert a path to a file:// URI with minimal allocations
+    fn path_to_file_uri(path: &std::path::Path) -> String {
+        if cfg!(windows) {
+            let path_str = path.display().to_string().replace('\\', "/");
+            // Remove UNC prefix if present (\\?\  -> //?/ after replacement)
+            if let Some(stripped) = path_str.strip_prefix("//?/") {
+                format!("file:///{}", stripped)
+            } else {
+                format!("file:///{}", path_str)
+            }
+        } else {
+            format!("file://{}", path.display())
+        }
     }
 
     pub fn clear_cache() -> Result<()> {

@@ -5,11 +5,10 @@ use std::time::Instant;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::manifest::parser::ManifestParser;
-use crate::resolver::ultra::UltraResolver;
-use crate::resolver::sat::ResolvedPackage;
+use crate::resolver::ultra::Resolver;
 use crate::fvm::installer::FvmInstaller;
 use crate::cache::manager::CacheManager;
-use crate::lockfile::{LockfileGenerator};
+use crate::lockfile::LockfileGenerator;
 use crate::scripts::ScriptRunner;
 use crate::cli::verbosity;
 
@@ -73,7 +72,7 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
     println!("🔍 Resolving {} direct dependencies...", dependencies.len());
 
     let resolve_start = Instant::now();
-    let mut resolver = UltraResolver::with_manifest(&manifest).await;
+    let mut resolver = Resolver::with_manifest(&manifest).await;
     let resolved = resolver.resolve(&manifest).await?;
     let resolve_time = resolve_start.elapsed();
 
@@ -86,25 +85,25 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
     let resolved_paths = resolver.get_resolved_paths();
     let resolved_batches = resolver.get_resolved_batches();
 
-    let resolved_packages: Vec<ResolvedPackage> = resolved
-        .iter()
-        .map(|(name, version)| {
-            let deps = HashMap::new(); // Dependencies will be resolved transitively
-
-            ResolvedPackage {
-                name: name.clone(),
-                version: version.clone(),
-                dependencies: deps,
-                source_constraint: manifest.require.as_ref()
-                    .and_then(|r| r.get(name).map(|d| d.version().to_string()))
-                    .or_else(|| manifest.require_dev.as_ref().and_then(|r| r.get(name).map(|d| d.version().to_string())))
-                    .unwrap_or_else(|| "any".to_string()),
+    // Pull archive_sha256 values out of the resolver's metadata cache so we
+    // can enforce checksum-verified downloads without extra network calls.
+    // Missing entries become `None` and fail closed unless
+    // `--allow-unchecksummed` was passed.
+    let metadata_cache_ref = resolver.metadata_cache().clone();
+    let mut checksums: HashMap<String, Option<String>> = HashMap::new();
+    for (name, version) in &resolved {
+        if let Some(versions) = metadata_cache_ref.get(name).await {
+            if let Some(v) = versions.iter().find(|v| &v.version == version) {
+                checksums.insert(name.clone(), v.archive_sha256.clone());
+                continue;
             }
-        })
-        .collect();
+        }
+        checksums.insert(name.clone(), None);
+    }
 
+    let graph = resolver.as_graph();
     let lockfile_path = std::path::Path::new("hatch.lock");
-    LockfileGenerator::generate(&manifest, &resolved_packages, lockfile_path)?;
+    LockfileGenerator::generate_from_graph(&manifest, &graph, lockfile_path)?;
     println!("🔒 Generated hatch.lock");
 
     // ULTRA-PARALLEL DOWNLOAD STRATEGY:
@@ -188,6 +187,7 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
         }
 
         // Create ALL download tasks at once - true parallel downloading!
+        // Use separate semaphores: high concurrency for network IO, CPU-bound for extraction
         let mut download_tasks = Vec::new();
         let download_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(100));
 
@@ -196,10 +196,27 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
             let sem_clone = download_semaphore.clone();
             let batch_num = resolved_batches.get(&name).copied().unwrap_or(999);
 
+            // Resolve the checksum up-front (on the main task, so any missing
+            // checksum fails the whole install rather than a silent download
+            // failure deep in join_all).
+            let checksum_opt = checksums.get(&name).and_then(|o| o.clone());
+            let checksum_arg = crate::cli::security::resolve_checksum_or_bypass(
+                &name,
+                &version,
+                checksum_opt.as_deref(),
+            )?;
+
             let task = tokio::spawn(async move {
                 let _permit = sem_clone.acquire().await.unwrap();
                 let start = std::time::Instant::now();
-                let result = cache_manager_clone.get_package_parallel("pub.dev", &name, &version).await;
+                let result = cache_manager_clone
+                    .get_package_parallel_with_checksum(
+                        "pub.dev",
+                        &name,
+                        &version,
+                        &checksum_arg,
+                    )
+                    .await;
                 let elapsed = start.elapsed();
                 (name, version, batch_num, result, elapsed)
             });

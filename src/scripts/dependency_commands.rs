@@ -163,25 +163,24 @@ impl DependencyCommandManager {
         };
 
         if let Some(manifest) = manifest {
-            // Extract scripts/commands from the manifest
+            // Extract scripts/commands from the manifest (accept string,
+            // argv-array, or object form).
             if let Some(scripts) = &manifest.scripts {
                 for (cmd_name, script_value) in scripts {
-                    let (command, description) = match script_value {
-                        serde_json::Value::String(_) => {
-                            (cmd_name.clone(), None)
-                        }
-                        serde_json::Value::Object(obj) => {
-                            let desc = obj.get("description")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-                            (cmd_name.clone(), desc)
-                        }
-                        _ => continue,
+                    let description = match script_value {
+                        serde_json::Value::Object(obj) => obj
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        _ => None,
                     };
-
+                    // Only surface entries we can parse.
+                    if super::parser::parse_script_value(script_value).is_none() {
+                        continue;
+                    }
                     commands.push(DependencyCommand {
                         package_name: package_name.to_string(),
-                        command_name: command,
+                        command_name: cmd_name.clone(),
                         description,
                         package_path: package_path.to_path_buf(),
                     });
@@ -244,58 +243,118 @@ impl DependencyCommandManager {
             return Err(anyhow!("No hatch manifest found in package"));
         };
 
+        // Pull the version of this dependency off its own manifest so the
+        // TOFU record is keyed correctly. Falls back to "unknown" if not
+        // present (the scripts in unversioned local packages still get
+        // pinned by body-hash).
+        let version = manifest
+            .version
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+
         // Get the command from scripts
-        if let Some(scripts) = &manifest.scripts {
-            if let Some(script_value) = scripts.get(&command.command_name) {
-                let cmd_string = match script_value {
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Object(obj) => {
-                        obj.get("command")
-                            .and_then(|v| v.as_str())
-                            .ok_or_else(|| anyhow!("Invalid script format"))?
-                            .to_string()
-                    }
-                    _ => return Err(anyhow!("Invalid script format")),
-                };
+        let scripts = manifest
+            .scripts
+            .as_ref()
+            .ok_or_else(|| anyhow!("No scripts defined in package manifest"))?;
+        let script_value = scripts
+            .get(&command.command_name)
+            .ok_or_else(|| anyhow!("Command not found in manifest"))?;
 
-                // Append args if provided
-                let full_command = if args.is_empty() {
-                    cmd_string
-                } else {
-                    format!("{} {}", cmd_string, args.join(" "))
-                };
+        let (cmd, _desc) = super::parser::parse_script_value(script_value)
+            .ok_or_else(|| anyhow!("Invalid script format"))?;
 
-                // Execute the command in the package directory
-                Self::execute_command_in_dir(&full_command, &command.package_path)
-            } else {
-                Err(anyhow!("Command not found in manifest"))
-            }
-        } else {
-            Err(anyhow!("No scripts defined in package manifest"))
-        }
-    }
-
-    /// Execute a shell command in a specific directory
-    fn execute_command_in_dir(command: &str, dir: &Path) -> Result<()> {
-        use std::process::{Command, Stdio};
-
-        info!("Executing in {}: {}", dir.display(), command);
-
-        let (shell, shell_arg) = if cfg!(target_os = "windows") {
-            ("cmd", "/C")
-        } else {
-            ("sh", "-c")
+        // TOFU trust gate – dependency origin.
+        let origin = super::trust::ScriptOrigin::Dependency {
+            package: command.package_name.clone(),
+            version,
         };
 
-        let mut cmd = Command::new(shell);
-        cmd.arg(shell_arg)
-           .arg(command)
-           .current_dir(dir)  // Run in package directory
-           .stdout(Stdio::inherit())
-           .stderr(Stdio::inherit())
-           .stdin(Stdio::inherit());
+        // Run through the shared executor so argv and shell forms share the
+        // same NUL/newline rejection + trust-gate logic. Executed in the
+        // package's own directory.
+        Self::execute_in_dir_with_origin(&cmd, &args, &command.package_path, &origin, &command.command_name)
+    }
 
-        let status = cmd.status()
+    /// Execute a parsed [`super::parser::ScriptCommand`] in the given
+    /// directory with TOFU trust enforcement.
+    fn execute_in_dir_with_origin(
+        command: &super::parser::ScriptCommand,
+        user_args: &[String],
+        dir: &Path,
+        origin: &super::trust::ScriptOrigin,
+        script_name: &str,
+    ) -> Result<()> {
+        use super::parser::ScriptCommand;
+        use super::trust::{check_script_trust, TrustDecision};
+        use std::process::{Command, Stdio};
+
+        for a in user_args {
+            if a.contains('\0') || a.contains('\r') || a.contains('\n') {
+                return Err(anyhow!(
+                    "Refusing to pass argument containing NUL or newline to shell"
+                ));
+            }
+        }
+
+        let body_for_trust = command.display();
+        match check_script_trust(origin, script_name, &body_for_trust)? {
+            TrustDecision::Allow => {}
+            TrustDecision::Deny => {
+                return Err(anyhow!("Script '{script_name}' blocked by trust decision"));
+            }
+        }
+
+        info!(
+            "Executing in {} (script '{}'): {}",
+            dir.display(),
+            script_name,
+            command.display()
+        );
+
+        let mut cmd = match command {
+            ScriptCommand::Argv(argv) => {
+                if argv.is_empty() {
+                    return Err(anyhow!("Script '{script_name}' has an empty argv"));
+                }
+                let mut c = Command::new(&argv[0]);
+                c.args(&argv[1..]);
+                for a in user_args {
+                    c.arg(a);
+                }
+                c
+            }
+            ScriptCommand::Shell(body) => {
+                if cfg!(target_os = "windows") {
+                    let mut full = body.clone();
+                    for a in user_args {
+                        let escaped = a.replace('"', "\"\"");
+                        full.push(' ');
+                        full.push('"');
+                        full.push_str(&escaped);
+                        full.push('"');
+                    }
+                    let mut c = Command::new("cmd");
+                    c.arg("/C").arg(full);
+                    c
+                } else {
+                    let mut c = Command::new("sh");
+                    c.arg("-c").arg(body).arg("hatch-script");
+                    for a in user_args {
+                        c.arg(a);
+                    }
+                    c
+                }
+            }
+        };
+
+        cmd.current_dir(dir)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .stdin(Stdio::inherit());
+
+        let status = cmd
+            .status()
             .map_err(|e| anyhow!("Failed to execute command: {}", e))?;
 
         if !status.success() {

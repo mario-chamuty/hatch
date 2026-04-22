@@ -45,8 +45,13 @@ impl DependencyUtils {
                 continue;
             }
 
-            // Skip git dependencies (for now, will handle separately)
+            // Skip git dependencies
             if dep.is_git() {
+                continue;
+            }
+
+            // Skip SDK dependencies
+            if dep.is_sdk() {
                 continue;
             }
 
@@ -79,20 +84,18 @@ impl DependencyUtils {
         nest_deps
     }
 
-    /// Extract Git dependencies
+    /// Extract Git dependencies (supports both Complex and Simple "git:url" shorthand)
     pub fn extract_git_deps(deps: &HashMap<String, Dependency>) -> Vec<(String, String, Option<String>)> {
         let mut git_deps = Vec::new();
 
         for (name, dep) in deps {
             if dep.is_git() {
-                if let Dependency::Complex(complex) = dep {
-                    if let Some(git_url) = &complex.git {
-                        git_deps.push((
-                            name.clone(),
-                            git_url.clone(),
-                            complex.git_ref.clone()
-                        ));
-                    }
+                if let Some(url) = dep.git_url() {
+                    git_deps.push((
+                        name.clone(),
+                        url.to_string(),
+                        dep.git_ref().map(|s| s.to_string()),
+                    ));
                 }
             }
         }
@@ -100,16 +103,14 @@ impl DependencyUtils {
         git_deps
     }
 
-    /// Extract SDK dependencies (flutter SDK packages)
+    /// Extract SDK dependencies (supports both Complex and Simple "sdk:flutter" shorthand)
     pub fn extract_sdk_deps(deps: &HashMap<String, Dependency>) -> Vec<(String, String)> {
         let mut sdk_deps = Vec::new();
 
         for (name, dep) in deps {
             if dep.is_sdk() {
-                if let Dependency::Complex(complex) = dep {
-                    if let Some(sdk) = &complex.sdk {
-                        sdk_deps.push((name.clone(), sdk.clone()));
-                    }
+                if let Some(sdk) = dep.sdk_name() {
+                    sdk_deps.push((name.clone(), sdk.to_string()));
                 }
             }
         }

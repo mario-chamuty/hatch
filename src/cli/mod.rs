@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 pub mod commands;
 pub mod args;
 pub mod verbosity;
+pub mod security;
 
 #[derive(Parser)]
 #[command(name = "hatch")]
@@ -28,6 +29,12 @@ pub struct Cli {
     /// Path to the project directory
     #[arg(long, global = true)]
     pub project_dir: Option<String>,
+
+    /// SECURITY: allow downloading packages that the registry did not
+    /// publish a checksum for. This is per-invocation only (NEVER a
+    /// config setting) and is recorded in `~/.hatch/audit.log`.
+    #[arg(long, global = true)]
+    pub allow_unchecksummed: bool,
 }
 
 #[derive(Subcommand)]
@@ -239,6 +246,11 @@ pub enum CacheCommands {
         /// Dry run - show what would be removed without removing
         #[arg(long)]
         dry_run: bool,
+        /// Also aggressively prune metadata, re-apply debloat to already-extracted
+        /// packages, and relocate .hatch_metadata.json sidecars to a central
+        /// ~/.hatch/cache/index.json. Lockfile-only.
+        #[arg(long)]
+        aggressive: bool,
     },
     /// Verify cache integrity
     Verify,

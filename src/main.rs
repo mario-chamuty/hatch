@@ -29,6 +29,9 @@ async fn main() -> Result<()> {
     // Set verbosity level
     verbosity::set_verbosity(cli.verbose);
 
+    // Propagate --allow-unchecksummed to the process-wide security flag.
+    cli::security::set_allow_unchecksummed(cli.allow_unchecksummed);
+
     // Initialize logger based on verbosity
     let log_level = match cli.verbose {
         0 => "warn",
@@ -148,7 +151,7 @@ async fn main() -> Result<()> {
                     cli::commands::cache::remove(&package, version.as_deref()).await
                 }
                 CacheCommands::List { detailed } => cli::commands::cache::list(detailed).await,
-                CacheCommands::Prune { dry_run } => cli::commands::cache::prune(dry_run).await,
+                CacheCommands::Prune { dry_run, aggressive } => cli::commands::cache::prune(dry_run, aggressive).await,
                 CacheCommands::Verify => cli::commands::cache::verify().await,
             }
         }

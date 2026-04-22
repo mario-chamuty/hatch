@@ -63,11 +63,32 @@ sha2 = "0.10"
 futures-util = "0.3"
 futures = "0.3"
 
+# Dependency resolution
+pubgrub = "0.2"
+bitvec = "1"
+blake3 = "1"
+
+# Path globbing for per-package .hatch.json keep/strip lists
+glob = "0.3"
+
+# Shell-safe argv splitting (no metachar interpretation)
+shell-words = "1"
+
+# Graph algorithms (independent-subgraph parallelism)
+petgraph = "0.6"
+rayon = "1"
+
 [dev-dependencies]
 tempfile = "3.8"
 assert_cmd = "2.0"
 predicates = "3.0"
 wiremock = "0.5"
+criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "1"
+
+[[bench]]
+name = "resolver"
+harness = false
 
 [profile.release]
 lto = true

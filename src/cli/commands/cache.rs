@@ -113,7 +113,7 @@ pub async fn list(detailed: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn prune(dry_run: bool) -> Result<()> {
+pub async fn prune(dry_run: bool, aggressive: bool) -> Result<()> {
     println!("🔍 Analyzing cache for unused packages...");
 
     // Get current project dependencies from pubspec.lock or hatch.lock
@@ -133,48 +133,159 @@ pub async fn prune(dry_run: bool) -> Result<()> {
 
     if unused_packages.is_empty() {
         println!("✅ No unused packages found in cache");
-        return Ok(());
-    }
-
-    println!("Found {} unused packages ({:.1} MB):",
-        unused_packages.len(),
-        unused_size as f64 / 1_048_576.0
-    );
-
-    for package in &unused_packages {
-        println!("   • {}@{} ({:.1} MB)",
-            package.name,
-            package.version,
-            package.size as f64 / 1_048_576.0
-        );
-    }
-
-    if dry_run {
-        println!();
-        println!("ℹ️  Dry run mode - no packages were removed");
-        println!("   Run without --dry-run to actually remove packages");
     } else {
-        print!("\n⚠️  Remove these packages? [y/N]: ");
-        io::stdout().flush()?;
+        println!("Found {} unused packages ({:.1} MB):",
+            unused_packages.len(),
+            unused_size as f64 / 1_048_576.0
+        );
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        if input.trim().eq_ignore_ascii_case("y") {
-            let package_count = unused_packages.len();
-            for package in unused_packages {
-                PackageStorage::clear_package("pub.dev", &package.name, Some(&package.version))?;
-            }
-            println!("✅ Removed {} packages, freed {:.1} MB",
-                package_count,
-                unused_size as f64 / 1_048_576.0
+        for package in &unused_packages {
+            println!("   • {}@{} ({:.1} MB)",
+                package.name,
+                package.version,
+                package.size as f64 / 1_048_576.0
             );
+        }
+
+        if dry_run {
+            println!();
+            println!("ℹ️  Dry run mode - no packages were removed");
+            println!("   Run without --dry-run to actually remove packages");
         } else {
-            println!("Cancelled.");
+            print!("\n⚠️  Remove these packages? [y/N]: ");
+            io::stdout().flush()?;
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+
+            if input.trim().eq_ignore_ascii_case("y") {
+                let package_count = unused_packages.len();
+                for package in unused_packages {
+                    PackageStorage::clear_package("pub.dev", &package.name, Some(&package.version))?;
+                }
+                println!("✅ Removed {} packages, freed {:.1} MB",
+                    package_count,
+                    unused_size as f64 / 1_048_576.0
+                );
+            } else {
+                println!("Cancelled.");
+            }
         }
     }
 
+    if aggressive && !dry_run {
+        run_aggressive_prune().await?;
+    } else if aggressive && dry_run {
+        println!("ℹ️  --aggressive has no effect in --dry-run mode");
+    }
+
     Ok(())
+}
+
+/// Aggressive prune:
+///   1. Lockfile-based pruning already ran above.
+///   2. Re-apply Stream A's debloat allowlist to already-extracted packages.
+///      If the `package_manifest` module is not present yet (Stream A still
+///      in flight), this step is skipped with a warning.
+///   3. MetadataCache::prune_aggressive().
+///   4. Merge every per-package `.hatch_metadata.json` sidecar into a
+///      central `~/.hatch/cache/index.json`, then delete the sidecars.
+async fn run_aggressive_prune() -> Result<()> {
+    println!();
+    println!("🧹 Aggressive prune running...");
+
+    // 2. Re-apply debloat.
+    // TODO: re-apply debloat once package_manifest lands (Stream A). The
+    // hook would call `crate::cache::package_manifest::keep_decision`
+    // on every file in each cached package dir and delete any file whose
+    // keep_decision says it should be stripped. Skipped for now because
+    // that module is not yet in the tree.
+    println!("   (skipped) re-apply debloat allowlist – depends on Stream A's package_manifest module");
+
+    // 3. Aggressive metadata prune.
+    let metadata_cache = crate::cache::metadata_cache::MetadataCache::new();
+    match metadata_cache.prune_aggressive() {
+        Ok(stats) => {
+            println!(
+                "   Metadata pruned: {} files removed, {} versions trimmed, ~{} bytes freed",
+                stats.files_removed, stats.versions_removed, stats.bytes_freed
+            );
+        }
+        Err(e) => {
+            println!("   Metadata prune failed: {e}");
+        }
+    }
+
+    // 4. Merge sidecars into central index.
+    match merge_metadata_sidecars() {
+        Ok(count) => println!("   Merged {count} metadata sidecars into central index.json"),
+        Err(e) => println!("   Sidecar merge failed: {e}"),
+    }
+
+    println!("✅ Aggressive prune complete");
+    Ok(())
+}
+
+/// Walk every cached package dir, read its `.hatch_metadata.json`, merge it
+/// into `~/.hatch/cache/index.json`, then delete the sidecar. Returns the
+/// number of sidecars that were successfully merged. Best-effort: per-file
+/// failures are logged, not fatal.
+fn merge_metadata_sidecars() -> Result<usize> {
+    use std::collections::BTreeMap;
+
+    let packages_dir = CachePaths::packages_dir()?;
+    if !packages_dir.exists() {
+        return Ok(0);
+    }
+
+    let index_path = CachePaths::root()?.join("index.json");
+    let mut index: BTreeMap<String, serde_json::Value> = match std::fs::read_to_string(&index_path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => BTreeMap::new(),
+    };
+
+    let mut merged = 0usize;
+    for registry_entry in std::fs::read_dir(&packages_dir)? {
+        let registry_entry = registry_entry?;
+        if !registry_entry.path().is_dir() {
+            continue;
+        }
+        let registry_name = registry_entry.file_name().to_string_lossy().to_string();
+        for package_entry in std::fs::read_dir(registry_entry.path())? {
+            let package_entry = package_entry?;
+            if !package_entry.path().is_dir() {
+                continue;
+            }
+            let package_name = package_entry.file_name().to_string_lossy().to_string();
+            for version_entry in std::fs::read_dir(package_entry.path())? {
+                let version_entry = version_entry?;
+                if !version_entry.path().is_dir() {
+                    continue;
+                }
+                let version = version_entry.file_name().to_string_lossy().to_string();
+                let sidecar = version_entry.path().join(".hatch_metadata.json");
+                if !sidecar.exists() {
+                    continue;
+                }
+                let content = match std::fs::read_to_string(&sidecar) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let value: serde_json::Value = match serde_json::from_str(&content) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let key = format!("{registry_name}/{package_name}/{version}");
+                index.insert(key, value);
+                let _ = std::fs::remove_file(&sidecar);
+                merged += 1;
+            }
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&index)?;
+    std::fs::write(&index_path, json)?;
+    Ok(merged)
 }
 
 fn get_used_packages() -> Result<Vec<String>> {

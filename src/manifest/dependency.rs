@@ -65,7 +65,14 @@ impl Dependency {
     /// Get the version constraint
     pub fn version(&self) -> &str {
         match self {
-            Dependency::Simple(v) => v,
+            Dependency::Simple(v) => {
+                // Shorthand formats don't have a meaningful version constraint
+                if v.starts_with("git:") || v.starts_with("path:") || v.starts_with("sdk:") {
+                    "any"
+                } else {
+                    v
+                }
+            }
             Dependency::Complex(c) => &c.version,
         }
     }
@@ -73,7 +80,7 @@ impl Dependency {
     /// Check if this is a local path dependency
     pub fn is_local(&self) -> bool {
         match self {
-            Dependency::Simple(_) => false,
+            Dependency::Simple(v) => v.starts_with("path:"),
             Dependency::Complex(c) => c.path.is_some(),
         }
     }
@@ -81,7 +88,7 @@ impl Dependency {
     /// Get the local path if this is a path dependency
     pub fn local_path(&self) -> Option<&str> {
         match self {
-            Dependency::Simple(_) => None,
+            Dependency::Simple(v) => v.strip_prefix("path:"),
             Dependency::Complex(c) => c.path.as_deref(),
         }
     }
@@ -89,8 +96,24 @@ impl Dependency {
     /// Check if this is a git dependency
     pub fn is_git(&self) -> bool {
         match self {
-            Dependency::Simple(_) => false,
+            Dependency::Simple(v) => v.starts_with("git:"),
             Dependency::Complex(c) => c.git.is_some(),
+        }
+    }
+
+    /// Get the git URL if this is a git dependency
+    pub fn git_url(&self) -> Option<&str> {
+        match self {
+            Dependency::Simple(v) => v.strip_prefix("git:"),
+            Dependency::Complex(c) => c.git.as_deref(),
+        }
+    }
+
+    /// Get the git ref if specified
+    pub fn git_ref(&self) -> Option<&str> {
+        match self {
+            Dependency::Simple(_) => None,
+            Dependency::Complex(c) => c.git_ref.as_deref(),
         }
     }
 
@@ -113,8 +136,16 @@ impl Dependency {
     /// Check if this is an SDK dependency
     pub fn is_sdk(&self) -> bool {
         match self {
-            Dependency::Simple(_) => false,
+            Dependency::Simple(v) => v.starts_with("sdk:"),
             Dependency::Complex(c) => c.sdk.is_some(),
+        }
+    }
+
+    /// Get the SDK name if this is an SDK dependency
+    pub fn sdk_name(&self) -> Option<&str> {
+        match self {
+            Dependency::Simple(v) => v.strip_prefix("sdk:"),
+            Dependency::Complex(c) => c.sdk.as_deref(),
         }
     }
 

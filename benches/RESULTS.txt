@@ -1,0 +1,2522 @@
+warning: unused import: `ALLOW_UNCHECKSUMMED_SENTINEL`
+ --> src\cache\manager.rs:6:44
+  |
+6 | use super::downloader::{PackageDownloader, ALLOW_UNCHECKSUMMED_SENTINEL};
+  |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Context`
+ --> src\cli\commands\update.rs:1:14
+  |
+1 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\cli\commands\update.rs:3:5
+  |
+3 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `anyhow`
+ --> src\cli\commands\why.rs:1:14
+  |
+1 | use anyhow::{anyhow, Result};
+  |              ^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> src\cli\commands\fvm.rs:3:5
+  |
+3 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+ --> src\cli\commands\migrate.rs:2:23
+  |
+2 | use std::path::{Path, PathBuf};
+  |                       ^^^^^^^
+
+warning: unused import: `Context`
+ --> src\cli\commands\sdk_update.rs:1:14
+  |
+1 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+
+warning: unused import: `chrono::Local`
+ --> src\cli\commands\cache.rs:4:5
+  |
+4 | use chrono::Local;
+  |     ^^^^^^^^^^^^^
+
+warning: unused imports: `ArgMatches` and `Command`
+ --> src\cli\args.rs:3:12
+  |
+3 | use clap::{ArgMatches, Command};
+  |            ^^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `anyhow::Result`
+ --> src\config\settings.rs:1:5
+  |
+1 | use anyhow::Result;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `Context`
+   --> src\manifest\schema.rs:171:30
+    |
+171 |         use anyhow::{anyhow, Context};
+    |                              ^^^^^^^
+
+warning: unused import: `Profile`
+ --> src\manifest\merger.rs:1:36
+  |
+1 | use super::schema::{HatchManifest, Profile};
+  |                                    ^^^^^^^
+
+warning: unused imports: `info` and `warn`
+ --> src\resolver\graph.rs:4:18
+  |
+4 | use log::{debug, info, warn};
+  |                  ^^^^  ^^^^
+
+warning: unused import: `super::version_index::VersionIndex`
+  --> src\resolver\ultra.rs:32:5
+   |
+32 | use super::version_index::VersionIndex;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `VersionConstraint`
+  --> src\resolver\subgraphs.rs:38:49
+   |
+38 | use crate::registry::traits::{ParsedConstraint, VersionConstraint};
+   |                                                 ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Serialize`
+ --> src\registry\pub_dev.rs:4:26
+  |
+4 | use serde::{Deserialize, Serialize};
+  |                          ^^^^^^^^^
+
+warning: unused import: `info`
+ --> src\registry\pub_dev.rs:7:18
+  |
+7 | use log::{debug, info, warn};
+  |                  ^^^^
+
+warning: unused variable: `base_version`
+   --> src\cli\commands\update.rs:185:13
+    |
+185 |         let base_version = current_constraint.trim_start_matches('^');
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_version`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `base_version`
+   --> src\cli\commands\update.rs:193:13
+    |
+193 |         let base_version = current_constraint.trim_start_matches('~');
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_version`
+
+warning: variable `constraint` is assigned to, but never used
+  --> src\cli\commands\why.rs:28:9
+   |
+28 |     let mut constraint = String::new();
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: consider using `_constraint` instead
+
+warning: value assigned to `constraint` is never read
+  --> src\cli\commands\why.rs:35:13
+   |
+35 |             constraint = dep.version().to_string();
+   |             ^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `constraint` is never read
+  --> src\cli\commands\why.rs:44:13
+   |
+44 |             constraint = dep.version().to_string();
+   |             ^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unused variable: `channel`
+ --> src\cli\commands\build.rs:8:65
+  |
+8 | pub async fn execute(platform: String, profile: Option<String>, channel: Option<String>) -> Result<()> {
+  |                                                                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_channel`
+
+warning: unused variable: `manifest`
+  --> src\cli\commands\build.rs:14:9
+   |
+14 |     let manifest = ManifestParser::parse_with_overrides("hatch.json", Some("hatch.local.json"))?;
+   |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_manifest`
+
+warning: unused variable: `hosted`
+   --> src\cli\commands\migrate.rs:310:25
+    |
+310 |             if let Some(hosted) = map.get("hosted") {
+    |                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_hosted`
+
+warning: unused variable: `manifest`
+   --> src\pubspec\generator.rs:179:30
+    |
+179 |     fn build_flutter_section(manifest: &HatchManifest) -> Result<BTreeMap<String, Value>> {
+    |                              ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_manifest`
+
+warning: associated function `move_directory_contents` is never used
+   --> src\cache\extractor.rs:391:8
+    |
+ 72 | impl PackageExtractor {
+    | --------------------- associated function in this implementation
+...
+391 |     fn move_directory_contents(src: &Path, dst: &Path) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `flavors` is never read
+  --> src\cli\commands\migrate.rs:15:5
+   |
+11 | struct FvmConfig {
+   |        --------- field in this struct
+...
+15 |     flavors: Option<HashMap<String, String>>,
+   |     ^^^^^^^
+   |
+   = note: `FvmConfig` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `name` is never read
+   --> src\registry\pub_dev.rs:327:5
+    |
+326 | struct PubDevPubspec {
+    |        ------------- field in this struct
+327 |     name: Option<String>,
+    |     ^^^^
+    |
+    = note: `PubDevPubspec` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: `hatch` (lib) generated 29 warnings (run `cargo fix --lib -p hatch` to apply 23 suggestions)
+warning: unused import: `Context`
+ --> src\cli\commands\update.rs:1:14
+  |
+1 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ComplexDependency`
+  --> src\manifest\mod.rs:15:34
+   |
+15 | pub use dependency::{Dependency, ComplexDependency};
+   |                                  ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::version_index::VersionIndex as _PublicVersionIndex`
+   --> src\resolver\ultra.rs:466:9
+    |
+466 | pub use super::version_index::VersionIndex as _PublicVersionIndex;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `detector::FvmDetector`
+ --> src\fvm\mod.rs:5:9
+  |
+5 | pub use detector::FvmDetector;
+  |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `installer::FvmInstaller`
+ --> src\fvm\mod.rs:6:9
+  |
+6 | pub use installer::FvmInstaller;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProjectFlutterInfo`
+ --> src\fvm\mod.rs:7:31
+  |
+7 | pub use manager::{FvmManager, ProjectFlutterInfo};
+  |                               ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::lockfile::generator::LockfileGenerator`
+ --> src\generator\lockfile.rs:5:9
+  |
+5 | pub use crate::lockfile::generator::LockfileGenerator;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ALLOW_UNCHECKSUMMED_SENTINEL`
+ --> src\cache\manager.rs:6:44
+  |
+6 | use super::downloader::{PackageDownloader, ALLOW_UNCHECKSUMMED_SENTINEL};
+  |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `manager::CacheManager`
+ --> src\cache\mod.rs:9:9
+  |
+9 | pub use manager::CacheManager;
+  |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `downloader::PackageDownloader`
+  --> src\cache\mod.rs:10:9
+   |
+10 | pub use downloader::PackageDownloader;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `storage::PackageStorage`
+  --> src\cache\mod.rs:11:9
+   |
+11 | pub use storage::PackageStorage;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `parser::ScriptParser`
+ --> src\scripts\mod.rs:7:9
+  |
+7 | pub use parser::ScriptParser;
+  |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ScriptOrigin`, `TrustDecision`, and `check_script_trust`
+ --> src\scripts\mod.rs:9:17
+  |
+9 | pub use trust::{ScriptOrigin, TrustDecision, check_script_trust};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+  --> src\main.rs:47:13
+   |
+47 |         use std::io::Write;
+   |             ^^^^^^^^^^^^^^
+
+warning: function `execute` is never used
+ --> src\cli\commands\install.rs:7:14
+  |
+7 | pub async fn execute(profile: Option<String>) -> Result<()> {
+  |              ^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `validate_package_name` is never used
+  --> src\cli\args.rs:11:12
+   |
+11 |     pub fn validate_package_name(name: &str) -> Result<()> {
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `validate_version_constraint` is never used
+  --> src\cli\args.rs:21:12
+   |
+21 |     pub fn validate_version_constraint(constraint: &str) -> Result<()> {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_PROFILE` is never used
+  --> src\cli\args.rs:33:15
+   |
+33 |     pub const DEFAULT_PROFILE: &str = "default";
+   |               ^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_CHANNEL` is never used
+  --> src\cli\args.rs:34:15
+   |
+34 |     pub const DEFAULT_CHANNEL: &str = "dev";
+   |               ^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_BUILD_PROFILE` is never used
+  --> src\cli\args.rs:35:15
+   |
+35 |     pub const DEFAULT_BUILD_PROFILE: &str = "release";
+   |               ^^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Quiet` is never constructed
+ --> src\cli\verbosity.rs:7:5
+  |
+6 | pub enum VerbosityLevel {
+  |          -------------- variant in this enum
+7 |     Quiet = 0,
+  |     ^^^^^
+  |
+  = note: `VerbosityLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `is_very_verbose` is never used
+  --> src\cli\verbosity.rs:40:8
+   |
+40 | pub fn is_very_verbose() -> bool {
+   |        ^^^^^^^^^^^^^^^
+
+warning: struct `ConfigManager` is never constructed
+ --> src\config\mod.rs:8:12
+  |
+8 | pub struct ConfigManager {
+  |            ^^^^^^^^^^^^^
+
+warning: associated items `new`, `init`, and `project_dir` are never used
+  --> src\config\mod.rs:13:12
+   |
+12 | impl ConfigManager {
+   | ------------------ associated items in this implementation
+13 |     pub fn new(project_dir: PathBuf) -> Self {
+   |            ^^^
+...
+18 |     pub fn init() -> Result<Self> {
+   |            ^^^^
+...
+24 |     pub fn project_dir(&self) -> &PathBuf {
+   |            ^^^^^^^^^^^
+
+warning: struct `RuntimeSettings` is never constructed
+ --> src\config\settings.rs:8:12
+  |
+8 | pub struct RuntimeSettings {
+  |            ^^^^^^^^^^^^^^^
+
+warning: struct `FlutterSettings` is never constructed
+  --> src\config\settings.rs:16:12
+   |
+16 | pub struct FlutterSettings {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `BuildSettings` is never constructed
+  --> src\config\settings.rs:22:12
+   |
+22 | pub struct BuildSettings {
+   |            ^^^^^^^^^^^^^
+
+warning: struct `CacheSettings` is never constructed
+  --> src\config\settings.rs:28:12
+   |
+28 | pub struct CacheSettings {
+   |            ^^^^^^^^^^^^^
+
+warning: associated function `from_manifest` is never used
+  --> src\config\settings.rs:68:12
+   |
+66 | impl RuntimeSettings {
+   | -------------------- associated function in this implementation
+67 |     /// Create runtime settings from manifest data
+68 |     pub fn from_manifest(
+   |            ^^^^^^^^^^^^^
+
+warning: associated items `cache_dir`, `manifest_yaml_path`, `local_manifest_yaml_path`, `pubspec_path`, `pubspec_lock_path`, and `find_manifest` are never used
+  --> src\config\paths.rs:16:12
+   |
+10 | impl PathResolver {
+   | ----------------- associated items in this implementation
+...
+16 |     pub fn cache_dir() -> Result<PathBuf> {
+   |            ^^^^^^^^^
+...
+22 |     pub fn manifest_yaml_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^^^^^^^
+...
+32 |     pub fn local_manifest_yaml_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+42 |     pub fn pubspec_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^
+...
+47 |     pub fn pubspec_lock_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^^^^^^
+...
+52 |     pub fn find_manifest(&self) -> Option<PathBuf> {
+   |            ^^^^^^^^^^^^^
+
+warning: method `validate_manifest` is never used
+  --> src\manifest\mod.rs:75:12
+   |
+24 | impl ManifestManager {
+   | -------------------- method in this implementation
+...
+75 |     pub fn validate_manifest(&self, profile: Option<&str>) -> Result<Vec<String>> {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: variant `Yaml` is never constructed
+  --> src\manifest\mod.rs:83:5
+   |
+82 | pub enum ManifestFormat {
+   |          -------------- variant in this enum
+83 |     Yaml,
+   |     ^^^^
+   |
+   = note: `ManifestFormat` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `get_dependencies`, `get_dev_dependencies`, and `get_scripts` are never used
+   --> src\manifest\schema.rs:99:12
+    |
+ 97 | impl HatchManifest {
+    | ------------------ methods in this implementation
+ 98 |     /// Get all dependencies for a specific profile
+ 99 |     pub fn get_dependencies(&self, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^
+...
+123 |     pub fn get_dev_dependencies(&self, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^
+...
+147 |     pub fn get_scripts(&self, profile_name: Option<&str>) -> HashMap<String, serde_json::Value> {
+    |            ^^^^^^^^^^^
+
+warning: associated function `check_conflicts` is never used
+   --> src\manifest\validator.rs:194:12
+    |
+ 10 | impl ManifestValidator {
+    | ---------------------- associated function in this implementation
+...
+194 |     pub fn check_conflicts(manifest: &HatchManifest) -> Vec<String> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: associated functions `flatten_dependencies`, `flatten_dev_dependencies`, `flatten_all_dependencies`, `flatten_scripts`, and `get_profile_names` are never used
+   --> src\manifest\merger.rs:46:12
+    |
+  8 | impl ManifestMerger {
+    | ------------------- associated functions in this implementation
+...
+ 46 |     pub fn flatten_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^
+...
+ 69 |     pub fn flatten_dev_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 92 |     pub fn flatten_all_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+100 |     pub fn flatten_scripts(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, serde_json::Value> {
+    |            ^^^^^^^^^^^^^^^
+...
+132 |     pub fn get_profile_names(manifest: &HatchManifest) -> Vec<String> {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: methods `is_from_nest` and `nest_name` are never used
+   --> src\manifest\dependency.rs:121:12
+    |
+ 64 | impl Dependency {
+    | --------------- methods in this implementation
+...
+121 |     pub fn is_from_nest(&self) -> bool {
+    |            ^^^^^^^^^^^^
+...
+129 |     pub fn nest_name(&self) -> Option<&str> {
+    |            ^^^^^^^^^
+
+warning: function `parse_dependencies` is never used
+   --> src\manifest\dependency.rs:219:8
+    |
+219 | pub fn parse_dependencies(value: &Value) -> HashMap<String, Dependency> {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `HatchLock` is never constructed
+  --> src\manifest\lockfile.rs:14:12
+   |
+14 | pub struct HatchLock {
+   |            ^^^^^^^^^
+
+warning: struct `LockedPackage` is never constructed
+  --> src\manifest\lockfile.rs:23:12
+   |
+23 | pub struct LockedPackage {
+   |            ^^^^^^^^^^^^^
+
+warning: associated functions `from_parsed` and `load` are never used
+  --> src\manifest\lockfile.rs:31:12
+   |
+30 | impl HatchLock {
+   | -------------- associated functions in this implementation
+31 |     pub fn from_parsed(raw: HatchLockfile) -> Self {
+   |            ^^^^^^^^^^^
+...
+57 |     pub fn load(path: &Path) -> Result<Self> {
+   |            ^^^^
+
+warning: function `find_nearest` is never used
+  --> src\manifest\lockfile.rs:65:8
+   |
+65 | pub fn find_nearest(cwd: &Path) -> Result<Option<PathBuf>> {
+   |        ^^^^^^^^^^^^
+
+warning: struct `DependencyResolver` is never constructed
+  --> src\resolver\mod.rs:14:12
+   |
+14 | pub struct DependencyResolver {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src\resolver\mod.rs:19:12
+   |
+18 | impl DependencyResolver {
+   | ----------------------- associated function in this implementation
+19 |     pub fn new() -> Self {
+   |            ^^^
+
+warning: field `resolved_paths` is never read
+  --> src\resolver\graph.rs:19:9
+   |
+16 | pub struct ResolutionGraph {
+   |            --------------- field in this struct
+...
+19 |     pub resolved_paths: HashMap<String, PathBuf>,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `ResolutionGraph` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated functions `new` and `from_resolved` are never used
+  --> src\resolver\graph.rs:23:12
+   |
+22 | impl ResolutionGraph {
+   | -------------------- associated functions in this implementation
+23 |     pub fn new() -> Self {
+   |            ^^^
+...
+27 |     pub fn from_resolved(resolved: HashMap<String, String>) -> Self {
+   |            ^^^^^^^^^^^^^
+
+warning: fields `name`, `version`, `source`, `dependencies`, and `dev_dependencies` are never read
+  --> src\resolver\graph.rs:39:9
+   |
+38 | pub struct DependencyNode {
+   |            -------------- fields in this struct
+39 |     pub name: String,
+   |         ^^^^
+40 |     pub version: String,
+   |         ^^^^^^^
+41 |     pub source: DependencySource,
+   |         ^^^^^^
+42 |     pub dependencies: HashMap<String, String>,
+   |         ^^^^^^^^^^^^
+43 |     pub dev_dependencies: HashMap<String, String>,
+   |         ^^^^^^^^^^^^^^^^
+   |
+   = note: `DependencyNode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `nodes` is never read
+  --> src\resolver\graph.rs:49:9
+   |
+48 | pub struct DependencyGraph {
+   |            --------------- field in this struct
+49 |     pub nodes: HashMap<String, DependencyNode>,
+   |         ^^^^^
+   |
+   = note: `DependencyGraph` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `DependencyConflict` is never constructed
+  --> src\resolver\graph.rs:55:12
+   |
+55 | pub struct DependencyConflict {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: struct `VersionRequest` is never constructed
+  --> src\resolver\graph.rs:61:12
+   |
+61 | pub struct VersionRequest {
+   |            ^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src\resolver\graph.rs:76:12
+    |
+ 67 | impl DependencyGraph {
+    | -------------------- methods in this implementation
+...
+ 76 |     pub fn add_node(&mut self, node: DependencyNode) {
+    |            ^^^^^^^^
+...
+ 90 |     pub fn check_circular_dependencies(&self) -> Result<Vec<Vec<String>>> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+110 |     fn dfs_cycle_detection(
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+138 |     pub fn topological_sort(&self) -> Result<Vec<String>> {
+    |            ^^^^^^^^^^^^^^^^
+...
+188 |     pub fn find_version_conflicts(&self, requirements: &HashMap<String, Vec<VersionRequest>>) -> Vec<DependencyConflict> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+223 |     fn are_constraints_compatible(&self, c1: &VersionConstraint, c2: &VersionConstraint) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+249 |     pub fn get_transitive_dependencies(&self, package: &str) -> HashSet<String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+325 |     pub fn get_statistics(&self) -> DependencyGraphStats {
+    |            ^^^^^^^^^^^^^^
+...
+340 |     fn calculate_max_depth(&self) -> usize {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+352 |     fn calculate_depth_from_node(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DependencyGraphStats` is never constructed
+   --> src\resolver\graph.rs:387:12
+    |
+387 | pub struct DependencyGraphStats {
+    |            ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `VersionUtils` is never constructed
+ --> src\resolver\version.rs:6:12
+  |
+6 | pub struct VersionUtils;
+  |            ^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> src\resolver\version.rs:10:12
+    |
+  8 | impl VersionUtils {
+    | ----------------- associated functions in this implementation
+  9 |     /// Compare two version strings using semver
+ 10 |     pub fn compare(v1: &str, v2: &str) -> Result<Ordering> {
+    |            ^^^^^^^
+...
+ 20 |     pub fn get_latest(versions: &[String]) -> Result<Option<String>> {
+    |            ^^^^^^^^^^
+...
+ 42 |     pub fn sort_versions(versions: &mut Vec<String>) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+...
+ 57 |     pub fn is_prerelease(version: &str) -> bool {
+    |            ^^^^^^^^^^^^^
+...
+ 66 |     pub fn satisfies_caret(version: &str, base: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^
+...
+ 74 |     pub fn satisfies_tilde(version: &str, base: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^
+...
+ 82 |     pub fn normalize_version(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+ 89 |     pub fn get_major_minor_patch(version: &str) -> Result<(u64, u64, u64)> {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+...
+ 96 |     pub fn is_stable(version: &str) -> bool {
+    |            ^^^^^^^^^
+...
+105 |     pub fn next_major(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^
+...
+117 |     pub fn next_minor(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^
+...
+128 |     pub fn next_patch(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^
+
+warning: type alias `UltraResolver` is never used
+  --> src\resolver\ultra.rs:44:10
+   |
+44 | pub type UltraResolver = Resolver;
+   |          ^^^^^^^^^^^^^
+
+warning: associated items `get_resolved`, `get_resolved_deps`, and `is_flutter_sdk_package` are never used
+   --> src\resolver\ultra.rs:429:12
+    |
+ 57 | impl Resolver {
+    | ------------- associated items in this implementation
+...
+429 |     pub fn get_resolved(&self) -> &HashMap<String, String> {
+    |            ^^^^^^^^^^^^
+...
+441 |     pub fn get_resolved_deps(&self) -> &HashMap<String, HashMap<String, String>> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+460 |     pub fn is_flutter_sdk_package(name: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated functions `to_simple_deps` and `extract_nest_deps` are never used
+  --> src\resolver\dependency_utils.rs:66:12
+   |
+ 6 | impl DependencyUtils {
+   | -------------------- associated functions in this implementation
+...
+66 |     pub fn to_simple_deps(deps: &HashMap<String, Dependency>) -> HashMap<String, String> {
+   |            ^^^^^^^^^^^^^^
+...
+73 |     pub fn extract_nest_deps(deps: &HashMap<String, Dependency>, nest_name: &str) -> HashMap<String, String> {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: fields `pretend_version` and `is_path` are never read
+ --> src\resolver\version_alias.rs:5:9
+  |
+3 | pub struct VersionAlias {
+  |            ------------ fields in this struct
+4 |     pub actual_version: String,
+5 |     pub pretend_version: String,
+  |         ^^^^^^^^^^^^^^^
+6 |     pub is_path: bool,
+  |         ^^^^^^^
+  |
+  = note: `VersionAlias` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `by_string` is never read
+  --> src\resolver\version_index.rs:24:5
+   |
+17 | pub struct VersionIndex {
+   |            ------------ field in this struct
+...
+24 |     by_string: HashMap<String, usize>,
+   |     ^^^^^^^^^
+
+warning: methods `index_of` and `iter_versions` are never used
+   --> src\resolver\version_index.rs:125:12
+    |
+ 27 | impl VersionIndex {
+    | ----------------- methods in this implementation
+...
+125 |     pub fn index_of(&self, v_str: &str) -> Option<usize> {
+    |            ^^^^^^^^
+...
+129 |     pub fn iter_versions(&self) -> impl Iterator<Item = (usize, &semver::Version)> {
+    |            ^^^^^^^^^^^^^
+
+warning: methods `and`, `or`, `highest`, `lowest`, `is_empty`, and `count` are never used
+   --> src\resolver\version_index.rs:138:12
+    |
+137 | impl VersionSet {
+    | --------------- methods in this implementation
+138 |     pub fn and(&self, other: &Self) -> Self {
+    |            ^^^
+...
+145 |     pub fn or(&self, other: &Self) -> Self {
+    |            ^^
+...
+153 |     pub fn highest(&self) -> Option<usize> {
+    |            ^^^^^^^
+...
+158 |     pub fn lowest(&self) -> Option<usize> {
+    |            ^^^^^^
+...
+162 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+...
+166 |     pub fn count(&self) -> usize {
+    |            ^^^^^
+
+warning: variant `NoVersions` is never constructed
+  --> src\resolver\error.rs:22:5
+   |
+10 | pub enum ResolverError {
+   |          ------------- variant in this enum
+...
+22 |     NoVersions(String),
+   |     ^^^^^^^^^^
+   |
+   = note: `ResolverError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `package`, `left`, and `right` are never read
+  --> src\resolver\propagation.rs:48:9
+   |
+47 | pub struct ConflictTrace {
+   |            ------------- fields in this struct
+48 |     pub package: String,
+   |         ^^^^^^^
+49 |     pub left: String,
+   |         ^^^^
+50 |     pub right: String,
+   |         ^^^^^
+   |
+   = note: `ConflictTrace` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `sdks` and `overrides` are never read
+   --> src\resolver\pubgrub_adapter.rs:107:9
+    |
+105 | pub struct HatchProvider {
+    |            ------------- fields in this struct
+106 |     pub cache: Arc<MetadataCache>,
+107 |     pub sdks: SdkConstraints,
+    |         ^^^^
+108 |     pub overrides: Overrides,
+    |         ^^^^^^^^^
+
+warning: struct `RegistryManager` is never constructed
+ --> src\registry\mod.rs:6:12
+  |
+6 | pub struct RegistryManager {
+  |            ^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src\registry\mod.rs:11:12
+   |
+10 | impl RegistryManager {
+   | -------------------- associated function in this implementation
+11 |     pub fn new() -> Self {
+   |            ^^^
+
+warning: struct `ResolvedDependency` is never constructed
+  --> src\registry\traits.rs:34:12
+   |
+34 | pub struct ResolvedDependency {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: methods `get_version_metadata`, `search_packages`, `get_available_versions`, `registry_url`, and `registry_name` are never used
+  --> src\registry\traits.rs:56:14
+   |
+51 | pub trait Registry: Send + Sync {
+   |           -------- methods in this trait
+...
+56 |     async fn get_version_metadata(&self, name: &str, version: &str) -> Result<PackageVersion>;
+   |              ^^^^^^^^^^^^^^^^^^^^
+...
+59 |     async fn search_packages(&self, query: &str) -> Result<Vec<PackageMetadata>>;
+   |              ^^^^^^^^^^^^^^^
+...
+65 |     async fn get_available_versions(&self, name: &str) -> Result<Vec<String>>;
+   |              ^^^^^^^^^^^^^^^^^^^^^^
+...
+68 |     fn registry_url(&self) -> &str;
+   |        ^^^^^^^^^^^^
+...
+71 |     fn registry_name(&self) -> &str;
+   |        ^^^^^^^^^^^^^
+
+warning: method `satisfies` is never used
+   --> src\registry\traits.rs:207:12
+    |
+103 | impl VersionConstraint {
+    | ---------------------- method in this implementation
+...
+207 |     pub fn satisfies(&self, version: &str) -> bool {
+    |            ^^^^^^^^^
+
+warning: associated functions `with_base_url` and `with_url` are never used
+  --> src\registry\pub_dev.rs:50:12
+   |
+17 | impl PubDevRegistry {
+   | ------------------- associated functions in this implementation
+...
+50 |     pub fn with_base_url(url: String) -> Self {
+   |            ^^^^^^^^^^^^^
+...
+81 |     pub fn with_url(url: String) -> Self {
+   |            ^^^^^^^^
+
+warning: struct `MissingChecksum` is never constructed
+  --> src\registry\pub_dev.rs:94:12
+   |
+94 | pub struct MissingChecksum {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `PubDevSearchResult` is never constructed
+   --> src\registry\pub_dev.rs:337:8
+    |
+337 | struct PubDevSearchResult {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `PubDevSearchPackage` is never constructed
+   --> src\registry\pub_dev.rs:342:8
+    |
+342 | struct PubDevSearchPackage {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `PubDevSearchLatest` is never constructed
+   --> src\registry\pub_dev.rs:348:8
+    |
+348 | struct PubDevSearchLatest {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: associated function `get_fvm_path` is never used
+  --> src\fvm\detector.rs:19:12
+   |
+ 8 | impl FvmDetector {
+   | ---------------- associated function in this implementation
+...
+19 |     pub fn get_fvm_path() -> Result<PathBuf> {
+   |            ^^^^^^^^^^^^
+
+warning: associated functions `remove_flutter_version` and `list_available_versions` are never used
+   --> src\fvm\installer.rs:67:12
+    |
+ 11 | impl FvmInstaller {
+    | ----------------- associated functions in this implementation
+...
+ 67 |     pub fn remove_flutter_version(version: &str) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+126 |     pub fn list_available_versions() -> Result<Vec<String>> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `get_project_info` is never used
+   --> src\fvm\manager.rs:144:12
+    |
+ 12 | impl FvmManager {
+    | --------------- method in this implementation
+...
+144 |     pub fn get_project_info(&self) -> Result<ProjectFlutterInfo> {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: struct `ProjectFlutterInfo` is never constructed
+   --> src\fvm\manager.rs:170:12
+    |
+170 | pub struct ProjectFlutterInfo {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: struct `FileGenerator` is never constructed
+ --> src\generator\mod.rs:4:12
+  |
+4 | pub struct FileGenerator {
+  |            ^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+ --> src\generator\mod.rs:9:12
+  |
+8 | impl FileGenerator {
+  | ------------------ associated function in this implementation
+9 |     pub fn new() -> Self {
+  |            ^^^
+
+warning: struct `BackendClient` is never constructed
+ --> src\backend\mod.rs:5:12
+  |
+5 | pub struct BackendClient {
+  |            ^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src\backend\mod.rs:10:12
+   |
+ 9 | impl BackendClient {
+   | ------------------ associated function in this implementation
+10 |     pub fn new() -> Self {
+   |            ^^^
+
+warning: struct `SubmoduleManager` is never constructed
+ --> src\submodules\mod.rs:4:12
+  |
+4 | pub struct SubmoduleManager {
+  |            ^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+ --> src\submodules\mod.rs:9:12
+  |
+8 | impl SubmoduleManager {
+  | --------------------- associated function in this implementation
+9 |     pub fn new() -> Self {
+  |            ^^^
+
+warning: associated function `is_git_repo` is never used
+  --> src\utils\mod.rs:11:12
+   |
+ 9 | impl Utilities {
+   | -------------- associated function in this implementation
+10 |     /// Check if we're in a git repository
+11 |     pub fn is_git_repo() -> bool {
+   |            ^^^^^^^^^^^
+
+warning: struct `ResolvedPackage` is never constructed
+  --> src\pubspec\generator.rs:14:12
+   |
+14 | pub struct ResolvedPackage {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `PubspecGenerator` is never constructed
+  --> src\pubspec\generator.rs:22:12
+   |
+22 | pub struct PubspecGenerator;
+   |            ^^^^^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> src\pubspec\generator.rs:26:12
+    |
+ 24 | impl PubspecGenerator {
+    | --------------------- associated functions in this implementation
+ 25 |     /// Generate pubspec.yaml from manifest and resolved dependencies
+ 26 |     pub fn generate(
+    |            ^^^^^^^^
+...
+101 |     pub fn generate_lock_file(
+    |            ^^^^^^^^^^^^^^^^^^
+...
+149 |     fn build_dependencies_section(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+179 |     fn build_flutter_section(manifest: &HatchManifest) -> Result<BTreeMap<String, Value>> {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+...
+191 |     fn build_sdks_section() -> Result<Value> {
+    |        ^^^^^^^^^^^^^^^^^^
+...
+202 |     pub fn update_existing_pubspec(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+...
+241 |     pub fn validate_pubspec(pubspec_path: &Path) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^
+...
+262 |     pub fn parse_existing_dependencies(pubspec_path: &Path) -> Result<HashMap<String, String>> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `get_package_with_checksum`, `get_packages`, and `clear_package` are never used
+   --> src\cache\manager.rs:24:18
+    |
+ 15 | impl CacheManager {
+    | ----------------- associated items in this implementation
+...
+ 24 |     pub async fn get_package_with_checksum(
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+147 |     pub async fn get_packages(
+    |                  ^^^^^^^^^^^^
+...
+290 |     pub fn clear_package(registry: &str, name: &str, version: Option<&str>) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+
+warning: associated function `get_pubdev_archive_url` is never used
+   --> src\cache\downloader.rs:241:12
+    |
+ 73 | impl PackageDownloader {
+    | ---------------------- associated function in this implementation
+...
+241 |     pub fn get_pubdev_archive_url(name: &str, version: &str) -> String {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated functions `extract_tar_gz` and `move_directory_contents` are never used
+   --> src\cache\extractor.rs:102:12
+    |
+ 72 | impl PackageExtractor {
+    | --------------------- associated functions in this implementation
+...
+102 |     pub fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
+    |            ^^^^^^^^^^^^^^
+...
+391 |     fn move_directory_contents(src: &Path, dst: &Path) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `hatch_package_version` is never read
+  --> src\cache\package_manifest.rs:65:9
+   |
+63 | pub struct HatchPackageOverrides {
+   |            --------------------- field in this struct
+64 |     #[serde(default)]
+65 |     pub hatch_package_version: u32,
+   |         ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `HatchPackageOverrides` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated functions `metadata_path` and `is_package_cached` are never used
+  --> src\cache\paths.rs:76:12
+   |
+13 | impl CachePaths {
+   | --------------- associated functions in this implementation
+...
+76 |     pub fn metadata_path(registry: &str, name: &str) -> Result<PathBuf> {
+   |            ^^^^^^^^^^^^^
+...
+91 |     pub fn is_package_cached(registry: &str, name: &str, version: &str) -> Result<bool> {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: methods `save_to_disk` and `get_cache` are never used
+   --> src\cache\metadata_cache.rs:112:18
+    |
+ 34 | impl MetadataCache {
+    | ------------------ methods in this implementation
+...
+112 |     pub async fn save_to_disk(&self, package: &str, versions: &[PackageVersion]) -> Result<()> {
+    |                  ^^^^^^^^^^^^
+...
+116 |     pub fn get_cache(&self) -> &RwLock<HashMap<String, Arc<Vec<PackageVersion>>>> {
+    |            ^^^^^^^^^
+
+warning: associated functions `has_package`, `get_packages`, `find_nearest`, and `merge` are never used
+  --> src\lockfile\parser.rs:69:12
+   |
+43 | impl LockfileParser {
+   | ------------------- associated functions in this implementation
+...
+69 |     pub fn has_package(lockfile: &HatchLockfile, name: &str, version: &str) -> bool {
+   |            ^^^^^^^^^^^
+...
+76 |     pub fn get_packages(lockfile: &HatchLockfile) -> Vec<(String, String)> {
+   |            ^^^^^^^^^^^^
+...
+86 |     pub fn find_nearest(start_dir: &Path) -> Result<Option<PathBuf>> {
+   |            ^^^^^^^^^^^^
+...
+98 |     pub fn merge(existing: &HatchLockfile, new: HatchLockfile) -> HatchLockfile {
+   |            ^^^^^
+
+warning: associated functions `generate_from_resolved` and `is_up_to_date` are never used
+  --> src\lockfile\generator.rs:63:12
+   |
+12 | impl LockfileGenerator {
+   | ---------------------- associated functions in this implementation
+...
+63 |     pub fn generate_from_resolved(
+   |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+77 |     pub fn is_up_to_date(_manifest: &HatchManifest, lockfile_path: &Path) -> bool {
+   |            ^^^^^^^^^^^^^
+
+warning: associated functions `run_pre_build`, `run_post_build`, and `run_scripts` are never used
+   --> src\scripts\runner.rs:46:12
+    |
+ 12 | impl ScriptRunner {
+    | ----------------- associated functions in this implementation
+...
+ 46 |     pub fn run_pre_build(manifest: &HatchManifest) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+...
+ 50 |     pub fn run_post_build(manifest: &HatchManifest) -> Result<()> {
+    |            ^^^^^^^^^^^^^^
+...
+171 |     pub fn run_scripts(manifest: &HatchManifest, script_names: Vec<String>) -> Result<()> {
+    |            ^^^^^^^^^^^
+
+warning: method `is_argv` is never used
+  --> src\scripts\parser.rs:41:12
+   |
+19 | impl ScriptCommand {
+   | ------------------ method in this implementation
+...
+41 |     pub fn is_argv(&self) -> bool {
+   |            ^^^^^^^
+
+warning: function `reset_package_trust` is never used
+   --> src\scripts\trust.rs:219:8
+    |
+219 | pub fn reset_package_trust(package: &str) -> Result<usize> {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `ICON_PNG` is never used
+ --> src\branding.rs:1:11
+  |
+1 | pub const ICON_PNG: &[u8] = include_bytes!("../icon.png");
+  |           ^^^^^^^^
+
+warning: constant `HATCH_BANNER` is never used
+  --> src\branding.rs:12:11
+   |
+12 | pub const HATCH_BANNER: &str = r#"
+   |           ^^^^^^^^^^^^
+
+warning: function `get_version_string` is never used
+  --> src\branding.rs:19:8
+   |
+19 | pub fn get_version_string() -> String {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `HatchAuth` is never constructed
+ --> src\auth\mod.rs:9:12
+  |
+9 | pub struct HatchAuth {
+  |            ^^^^^^^^^
+
+warning: struct `NestAuth` is never constructed
+  --> src\auth\mod.rs:22:12
+   |
+22 | pub struct NestAuth {
+   |            ^^^^^^^^
+
+warning: struct `GitAuth` is never constructed
+  --> src\auth\mod.rs:29:12
+   |
+29 | pub struct GitAuth {
+   |            ^^^^^^^
+
+warning: struct `AuthManager` is never constructed
+  --> src\auth\mod.rs:35:12
+   |
+35 | pub struct AuthManager;
+   |            ^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> src\auth\mod.rs:39:12
+    |
+ 37 | impl AuthManager {
+    | ---------------- associated functions in this implementation
+ 38 |     /// Load authentication configuration
+ 39 |     pub fn load() -> Result<HatchAuth> {
+    |            ^^^^
+...
+ 68 |     fn global_auth_path() -> Result<PathBuf> {
+    |        ^^^^^^^^^^^^^^^^
+...
+ 75 |     fn merge_auth(mut base: HatchAuth, overlay: HatchAuth) -> HatchAuth {
+    |        ^^^^^^^^^^
+...
+ 98 |     pub fn get_nest_auth(nest_name: &str) -> Result<Option<NestAuth>> {
+    |            ^^^^^^^^^^^^^
+...
+104 |     pub fn save_local_auth(auth: &HatchAuth) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^
+...
+113 |     pub fn add_nest_auth(nest_name: String, token: String, username: Option<String>) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+...
+129 |     pub fn remove_nest_auth(nest_name: &str) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^
+...
+145 |     pub fn create_sample_auth_file(path: &Path) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `hatch` (bin "hatch") generated 132 warnings (26 duplicates) (run `cargo fix --bin "hatch" -p hatch` to apply 13 suggestions)
+warning: `hatch` (lib) generated 29 warnings (29 duplicates)
+    Finished `bench` profile [optimized] target(s) in 0.41s
+     Running benches\resolver.rs (target\release\deps\resolver-303bf5ac3a899c92.exe)
+Gnuplot not found, using plotters backend
+🔍 Resolving 3 direct dependencies...
+
+thread 'tokio-runtime-worker' (19760) panicked at C:\Users\mario\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pubgrub-0.2.1\src\internal\partial_solution.rs:131:25:
+add_derivation should not be called after a decision
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Benchmarking resolve_basic/warm
+Benchmarking resolve_basic/warm: Warming up for 3.0000 s
+🔍 Resolving 3 direct dependencies...
+
+thread 'tokio-runtime-worker' (19096) panicked at C:\Users\mario\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pubgrub-0.2.1\src\internal\partial_solution.rs:131:25:
+add_derivation should not be called after a decision
+
+thread 'main' (33088) panicked at benches\resolver.rs:189:40:
+resolve basic: resolver error: resolver I/O error: pubgrub task join failed: task 193 panicked with message "add_derivation should not be called after a decision"
+
+error: bench failed, to rerun pass `--bench resolver`
+warning: unused import: `ALLOW_UNCHECKSUMMED_SENTINEL`
+ --> src\cache\manager.rs:6:44
+  |
+6 | use super::downloader::{PackageDownloader, ALLOW_UNCHECKSUMMED_SENTINEL};
+  |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Context`
+ --> src\cli\commands\update.rs:1:14
+  |
+1 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\cli\commands\update.rs:3:5
+  |
+3 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `anyhow`
+ --> src\cli\commands\why.rs:1:14
+  |
+1 | use anyhow::{anyhow, Result};
+  |              ^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> src\cli\commands\fvm.rs:3:5
+  |
+3 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+ --> src\cli\commands\migrate.rs:2:23
+  |
+2 | use std::path::{Path, PathBuf};
+  |                       ^^^^^^^
+
+warning: unused import: `Context`
+ --> src\cli\commands\sdk_update.rs:1:14
+  |
+1 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+
+warning: unused import: `chrono::Local`
+ --> src\cli\commands\cache.rs:4:5
+  |
+4 | use chrono::Local;
+  |     ^^^^^^^^^^^^^
+
+warning: unused imports: `ArgMatches` and `Command`
+ --> src\cli\args.rs:3:12
+  |
+3 | use clap::{ArgMatches, Command};
+  |            ^^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `anyhow::Result`
+ --> src\config\settings.rs:1:5
+  |
+1 | use anyhow::Result;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `Context`
+   --> src\manifest\schema.rs:171:30
+    |
+171 |         use anyhow::{anyhow, Context};
+    |                              ^^^^^^^
+
+warning: unused import: `Profile`
+ --> src\manifest\merger.rs:1:36
+  |
+1 | use super::schema::{HatchManifest, Profile};
+  |                                    ^^^^^^^
+
+warning: unused imports: `info` and `warn`
+ --> src\resolver\graph.rs:4:18
+  |
+4 | use log::{debug, info, warn};
+  |                  ^^^^  ^^^^
+
+warning: unused import: `super::version_index::VersionIndex`
+  --> src\resolver\ultra.rs:32:5
+   |
+32 | use super::version_index::VersionIndex;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `VersionConstraint`
+  --> src\resolver\subgraphs.rs:38:49
+   |
+38 | use crate::registry::traits::{ParsedConstraint, VersionConstraint};
+   |                                                 ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Serialize`
+ --> src\registry\pub_dev.rs:4:26
+  |
+4 | use serde::{Deserialize, Serialize};
+  |                          ^^^^^^^^^
+
+warning: unused import: `info`
+ --> src\registry\pub_dev.rs:7:18
+  |
+7 | use log::{debug, info, warn};
+  |                  ^^^^
+
+warning: unused variable: `base_version`
+   --> src\cli\commands\update.rs:185:13
+    |
+185 |         let base_version = current_constraint.trim_start_matches('^');
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_version`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `base_version`
+   --> src\cli\commands\update.rs:193:13
+    |
+193 |         let base_version = current_constraint.trim_start_matches('~');
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_version`
+
+warning: variable `constraint` is assigned to, but never used
+  --> src\cli\commands\why.rs:28:9
+   |
+28 |     let mut constraint = String::new();
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: consider using `_constraint` instead
+
+warning: value assigned to `constraint` is never read
+  --> src\cli\commands\why.rs:35:13
+   |
+35 |             constraint = dep.version().to_string();
+   |             ^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `constraint` is never read
+  --> src\cli\commands\why.rs:44:13
+   |
+44 |             constraint = dep.version().to_string();
+   |             ^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unused variable: `channel`
+ --> src\cli\commands\build.rs:8:65
+  |
+8 | pub async fn execute(platform: String, profile: Option<String>, channel: Option<String>) -> Result<()> {
+  |                                                                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_channel`
+
+warning: unused variable: `manifest`
+  --> src\cli\commands\build.rs:14:9
+   |
+14 |     let manifest = ManifestParser::parse_with_overrides("hatch.json", Some("hatch.local.json"))?;
+   |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_manifest`
+
+warning: unused variable: `hosted`
+   --> src\cli\commands\migrate.rs:310:25
+    |
+310 |             if let Some(hosted) = map.get("hosted") {
+    |                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_hosted`
+
+warning: unused variable: `manifest`
+   --> src\pubspec\generator.rs:179:30
+    |
+179 |     fn build_flutter_section(manifest: &HatchManifest) -> Result<BTreeMap<String, Value>> {
+    |                              ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_manifest`
+
+warning: associated function `move_directory_contents` is never used
+   --> src\cache\extractor.rs:391:8
+    |
+ 72 | impl PackageExtractor {
+    | --------------------- associated function in this implementation
+...
+391 |     fn move_directory_contents(src: &Path, dst: &Path) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `flavors` is never read
+  --> src\cli\commands\migrate.rs:15:5
+   |
+11 | struct FvmConfig {
+   |        --------- field in this struct
+...
+15 |     flavors: Option<HashMap<String, String>>,
+   |     ^^^^^^^
+   |
+   = note: `FvmConfig` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `name` is never read
+   --> src\registry\pub_dev.rs:327:5
+    |
+326 | struct PubDevPubspec {
+    |        ------------- field in this struct
+327 |     name: Option<String>,
+    |     ^^^^
+    |
+    = note: `PubDevPubspec` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: `hatch` (lib) generated 29 warnings (run `cargo fix --lib -p hatch` to apply 23 suggestions)
+warning: unused import: `Context`
+ --> src\cli\commands\update.rs:1:14
+  |
+1 | use anyhow::{Context, Result};
+  |              ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ComplexDependency`
+  --> src\manifest\mod.rs:15:34
+   |
+15 | pub use dependency::{Dependency, ComplexDependency};
+   |                                  ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::version_index::VersionIndex as _PublicVersionIndex`
+   --> src\resolver\ultra.rs:466:9
+    |
+466 | pub use super::version_index::VersionIndex as _PublicVersionIndex;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `detector::FvmDetector`
+ --> src\fvm\mod.rs:5:9
+  |
+5 | pub use detector::FvmDetector;
+  |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `installer::FvmInstaller`
+ --> src\fvm\mod.rs:6:9
+  |
+6 | pub use installer::FvmInstaller;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ProjectFlutterInfo`
+ --> src\fvm\mod.rs:7:31
+  |
+7 | pub use manager::{FvmManager, ProjectFlutterInfo};
+  |                               ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::lockfile::generator::LockfileGenerator`
+ --> src\generator\lockfile.rs:5:9
+  |
+5 | pub use crate::lockfile::generator::LockfileGenerator;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ALLOW_UNCHECKSUMMED_SENTINEL`
+ --> src\cache\manager.rs:6:44
+  |
+6 | use super::downloader::{PackageDownloader, ALLOW_UNCHECKSUMMED_SENTINEL};
+  |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `manager::CacheManager`
+ --> src\cache\mod.rs:9:9
+  |
+9 | pub use manager::CacheManager;
+  |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `downloader::PackageDownloader`
+  --> src\cache\mod.rs:10:9
+   |
+10 | pub use downloader::PackageDownloader;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `storage::PackageStorage`
+  --> src\cache\mod.rs:11:9
+   |
+11 | pub use storage::PackageStorage;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `parser::ScriptParser`
+ --> src\scripts\mod.rs:7:9
+  |
+7 | pub use parser::ScriptParser;
+  |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ScriptOrigin`, `TrustDecision`, and `check_script_trust`
+ --> src\scripts\mod.rs:9:17
+  |
+9 | pub use trust::{ScriptOrigin, TrustDecision, check_script_trust};
+  |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+  --> src\main.rs:47:13
+   |
+47 |         use std::io::Write;
+   |             ^^^^^^^^^^^^^^
+
+warning: function `execute` is never used
+ --> src\cli\commands\install.rs:7:14
+  |
+7 | pub async fn execute(profile: Option<String>) -> Result<()> {
+  |              ^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `validate_package_name` is never used
+  --> src\cli\args.rs:11:12
+   |
+11 |     pub fn validate_package_name(name: &str) -> Result<()> {
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `validate_version_constraint` is never used
+  --> src\cli\args.rs:21:12
+   |
+21 |     pub fn validate_version_constraint(constraint: &str) -> Result<()> {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_PROFILE` is never used
+  --> src\cli\args.rs:33:15
+   |
+33 |     pub const DEFAULT_PROFILE: &str = "default";
+   |               ^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_CHANNEL` is never used
+  --> src\cli\args.rs:34:15
+   |
+34 |     pub const DEFAULT_CHANNEL: &str = "dev";
+   |               ^^^^^^^^^^^^^^^
+
+warning: constant `DEFAULT_BUILD_PROFILE` is never used
+  --> src\cli\args.rs:35:15
+   |
+35 |     pub const DEFAULT_BUILD_PROFILE: &str = "release";
+   |               ^^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Quiet` is never constructed
+ --> src\cli\verbosity.rs:7:5
+  |
+6 | pub enum VerbosityLevel {
+  |          -------------- variant in this enum
+7 |     Quiet = 0,
+  |     ^^^^^
+  |
+  = note: `VerbosityLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `is_very_verbose` is never used
+  --> src\cli\verbosity.rs:40:8
+   |
+40 | pub fn is_very_verbose() -> bool {
+   |        ^^^^^^^^^^^^^^^
+
+warning: struct `ConfigManager` is never constructed
+ --> src\config\mod.rs:8:12
+  |
+8 | pub struct ConfigManager {
+  |            ^^^^^^^^^^^^^
+
+warning: associated items `new`, `init`, and `project_dir` are never used
+  --> src\config\mod.rs:13:12
+   |
+12 | impl ConfigManager {
+   | ------------------ associated items in this implementation
+13 |     pub fn new(project_dir: PathBuf) -> Self {
+   |            ^^^
+...
+18 |     pub fn init() -> Result<Self> {
+   |            ^^^^
+...
+24 |     pub fn project_dir(&self) -> &PathBuf {
+   |            ^^^^^^^^^^^
+
+warning: struct `RuntimeSettings` is never constructed
+ --> src\config\settings.rs:8:12
+  |
+8 | pub struct RuntimeSettings {
+  |            ^^^^^^^^^^^^^^^
+
+warning: struct `FlutterSettings` is never constructed
+  --> src\config\settings.rs:16:12
+   |
+16 | pub struct FlutterSettings {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `BuildSettings` is never constructed
+  --> src\config\settings.rs:22:12
+   |
+22 | pub struct BuildSettings {
+   |            ^^^^^^^^^^^^^
+
+warning: struct `CacheSettings` is never constructed
+  --> src\config\settings.rs:28:12
+   |
+28 | pub struct CacheSettings {
+   |            ^^^^^^^^^^^^^
+
+warning: associated function `from_manifest` is never used
+  --> src\config\settings.rs:68:12
+   |
+66 | impl RuntimeSettings {
+   | -------------------- associated function in this implementation
+67 |     /// Create runtime settings from manifest data
+68 |     pub fn from_manifest(
+   |            ^^^^^^^^^^^^^
+
+warning: associated items `cache_dir`, `manifest_yaml_path`, `local_manifest_yaml_path`, `pubspec_path`, `pubspec_lock_path`, and `find_manifest` are never used
+  --> src\config\paths.rs:16:12
+   |
+10 | impl PathResolver {
+   | ----------------- associated items in this implementation
+...
+16 |     pub fn cache_dir() -> Result<PathBuf> {
+   |            ^^^^^^^^^
+...
+22 |     pub fn manifest_yaml_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^^^^^^^
+...
+32 |     pub fn local_manifest_yaml_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+42 |     pub fn pubspec_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^
+...
+47 |     pub fn pubspec_lock_path(&self) -> PathBuf {
+   |            ^^^^^^^^^^^^^^^^^
+...
+52 |     pub fn find_manifest(&self) -> Option<PathBuf> {
+   |            ^^^^^^^^^^^^^
+
+warning: method `validate_manifest` is never used
+  --> src\manifest\mod.rs:75:12
+   |
+24 | impl ManifestManager {
+   | -------------------- method in this implementation
+...
+75 |     pub fn validate_manifest(&self, profile: Option<&str>) -> Result<Vec<String>> {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: variant `Yaml` is never constructed
+  --> src\manifest\mod.rs:83:5
+   |
+82 | pub enum ManifestFormat {
+   |          -------------- variant in this enum
+83 |     Yaml,
+   |     ^^^^
+   |
+   = note: `ManifestFormat` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `get_dependencies`, `get_dev_dependencies`, and `get_scripts` are never used
+   --> src\manifest\schema.rs:99:12
+    |
+ 97 | impl HatchManifest {
+    | ------------------ methods in this implementation
+ 98 |     /// Get all dependencies for a specific profile
+ 99 |     pub fn get_dependencies(&self, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^
+...
+123 |     pub fn get_dev_dependencies(&self, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^
+...
+147 |     pub fn get_scripts(&self, profile_name: Option<&str>) -> HashMap<String, serde_json::Value> {
+    |            ^^^^^^^^^^^
+
+warning: associated function `check_conflicts` is never used
+   --> src\manifest\validator.rs:194:12
+    |
+ 10 | impl ManifestValidator {
+    | ---------------------- associated function in this implementation
+...
+194 |     pub fn check_conflicts(manifest: &HatchManifest) -> Vec<String> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: associated functions `flatten_dependencies`, `flatten_dev_dependencies`, `flatten_all_dependencies`, `flatten_scripts`, and `get_profile_names` are never used
+   --> src\manifest\merger.rs:46:12
+    |
+  8 | impl ManifestMerger {
+    | ------------------- associated functions in this implementation
+...
+ 46 |     pub fn flatten_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^
+...
+ 69 |     pub fn flatten_dev_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 92 |     pub fn flatten_all_dependencies(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+100 |     pub fn flatten_scripts(manifest: &HatchManifest, profile_name: Option<&str>) -> HashMap<String, serde_json::Value> {
+    |            ^^^^^^^^^^^^^^^
+...
+132 |     pub fn get_profile_names(manifest: &HatchManifest) -> Vec<String> {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: methods `is_from_nest` and `nest_name` are never used
+   --> src\manifest\dependency.rs:121:12
+    |
+ 64 | impl Dependency {
+    | --------------- methods in this implementation
+...
+121 |     pub fn is_from_nest(&self) -> bool {
+    |            ^^^^^^^^^^^^
+...
+129 |     pub fn nest_name(&self) -> Option<&str> {
+    |            ^^^^^^^^^
+
+warning: function `parse_dependencies` is never used
+   --> src\manifest\dependency.rs:219:8
+    |
+219 | pub fn parse_dependencies(value: &Value) -> HashMap<String, Dependency> {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `HatchLock` is never constructed
+  --> src\manifest\lockfile.rs:14:12
+   |
+14 | pub struct HatchLock {
+   |            ^^^^^^^^^
+
+warning: struct `LockedPackage` is never constructed
+  --> src\manifest\lockfile.rs:23:12
+   |
+23 | pub struct LockedPackage {
+   |            ^^^^^^^^^^^^^
+
+warning: associated functions `from_parsed` and `load` are never used
+  --> src\manifest\lockfile.rs:31:12
+   |
+30 | impl HatchLock {
+   | -------------- associated functions in this implementation
+31 |     pub fn from_parsed(raw: HatchLockfile) -> Self {
+   |            ^^^^^^^^^^^
+...
+57 |     pub fn load(path: &Path) -> Result<Self> {
+   |            ^^^^
+
+warning: function `find_nearest` is never used
+  --> src\manifest\lockfile.rs:65:8
+   |
+65 | pub fn find_nearest(cwd: &Path) -> Result<Option<PathBuf>> {
+   |        ^^^^^^^^^^^^
+
+warning: struct `DependencyResolver` is never constructed
+  --> src\resolver\mod.rs:14:12
+   |
+14 | pub struct DependencyResolver {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src\resolver\mod.rs:19:12
+   |
+18 | impl DependencyResolver {
+   | ----------------------- associated function in this implementation
+19 |     pub fn new() -> Self {
+   |            ^^^
+
+warning: field `resolved_paths` is never read
+  --> src\resolver\graph.rs:19:9
+   |
+16 | pub struct ResolutionGraph {
+   |            --------------- field in this struct
+...
+19 |     pub resolved_paths: HashMap<String, PathBuf>,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `ResolutionGraph` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated functions `new` and `from_resolved` are never used
+  --> src\resolver\graph.rs:23:12
+   |
+22 | impl ResolutionGraph {
+   | -------------------- associated functions in this implementation
+23 |     pub fn new() -> Self {
+   |            ^^^
+...
+27 |     pub fn from_resolved(resolved: HashMap<String, String>) -> Self {
+   |            ^^^^^^^^^^^^^
+
+warning: fields `name`, `version`, `source`, `dependencies`, and `dev_dependencies` are never read
+  --> src\resolver\graph.rs:39:9
+   |
+38 | pub struct DependencyNode {
+   |            -------------- fields in this struct
+39 |     pub name: String,
+   |         ^^^^
+40 |     pub version: String,
+   |         ^^^^^^^
+41 |     pub source: DependencySource,
+   |         ^^^^^^
+42 |     pub dependencies: HashMap<String, String>,
+   |         ^^^^^^^^^^^^
+43 |     pub dev_dependencies: HashMap<String, String>,
+   |         ^^^^^^^^^^^^^^^^
+   |
+   = note: `DependencyNode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `nodes` is never read
+  --> src\resolver\graph.rs:49:9
+   |
+48 | pub struct DependencyGraph {
+   |            --------------- field in this struct
+49 |     pub nodes: HashMap<String, DependencyNode>,
+   |         ^^^^^
+   |
+   = note: `DependencyGraph` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `DependencyConflict` is never constructed
+  --> src\resolver\graph.rs:55:12
+   |
+55 | pub struct DependencyConflict {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: struct `VersionRequest` is never constructed
+  --> src\resolver\graph.rs:61:12
+   |
+61 | pub struct VersionRequest {
+   |            ^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src\resolver\graph.rs:76:12
+    |
+ 67 | impl DependencyGraph {
+    | -------------------- methods in this implementation
+...
+ 76 |     pub fn add_node(&mut self, node: DependencyNode) {
+    |            ^^^^^^^^
+...
+ 90 |     pub fn check_circular_dependencies(&self) -> Result<Vec<Vec<String>>> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+110 |     fn dfs_cycle_detection(
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+138 |     pub fn topological_sort(&self) -> Result<Vec<String>> {
+    |            ^^^^^^^^^^^^^^^^
+...
+188 |     pub fn find_version_conflicts(&self, requirements: &HashMap<String, Vec<VersionRequest>>) -> Vec<DependencyConflict> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+223 |     fn are_constraints_compatible(&self, c1: &VersionConstraint, c2: &VersionConstraint) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+249 |     pub fn get_transitive_dependencies(&self, package: &str) -> HashSet<String> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+325 |     pub fn get_statistics(&self) -> DependencyGraphStats {
+    |            ^^^^^^^^^^^^^^
+...
+340 |     fn calculate_max_depth(&self) -> usize {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+352 |     fn calculate_depth_from_node(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DependencyGraphStats` is never constructed
+   --> src\resolver\graph.rs:387:12
+    |
+387 | pub struct DependencyGraphStats {
+    |            ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `VersionUtils` is never constructed
+ --> src\resolver\version.rs:6:12
+  |
+6 | pub struct VersionUtils;
+  |            ^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> src\resolver\version.rs:10:12
+    |
+  8 | impl VersionUtils {
+    | ----------------- associated functions in this implementation
+  9 |     /// Compare two version strings using semver
+ 10 |     pub fn compare(v1: &str, v2: &str) -> Result<Ordering> {
+    |            ^^^^^^^
+...
+ 20 |     pub fn get_latest(versions: &[String]) -> Result<Option<String>> {
+    |            ^^^^^^^^^^
+...
+ 42 |     pub fn sort_versions(versions: &mut Vec<String>) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+...
+ 57 |     pub fn is_prerelease(version: &str) -> bool {
+    |            ^^^^^^^^^^^^^
+...
+ 66 |     pub fn satisfies_caret(version: &str, base: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^
+...
+ 74 |     pub fn satisfies_tilde(version: &str, base: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^
+...
+ 82 |     pub fn normalize_version(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+ 89 |     pub fn get_major_minor_patch(version: &str) -> Result<(u64, u64, u64)> {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+...
+ 96 |     pub fn is_stable(version: &str) -> bool {
+    |            ^^^^^^^^^
+...
+105 |     pub fn next_major(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^
+...
+117 |     pub fn next_minor(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^
+...
+128 |     pub fn next_patch(version: &str) -> Result<String> {
+    |            ^^^^^^^^^^
+
+warning: type alias `UltraResolver` is never used
+  --> src\resolver\ultra.rs:44:10
+   |
+44 | pub type UltraResolver = Resolver;
+   |          ^^^^^^^^^^^^^
+
+warning: associated items `get_resolved`, `get_resolved_deps`, and `is_flutter_sdk_package` are never used
+   --> src\resolver\ultra.rs:429:12
+    |
+ 57 | impl Resolver {
+    | ------------- associated items in this implementation
+...
+429 |     pub fn get_resolved(&self) -> &HashMap<String, String> {
+    |            ^^^^^^^^^^^^
+...
+441 |     pub fn get_resolved_deps(&self) -> &HashMap<String, HashMap<String, String>> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+460 |     pub fn is_flutter_sdk_package(name: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated functions `to_simple_deps` and `extract_nest_deps` are never used
+  --> src\resolver\dependency_utils.rs:66:12
+   |
+ 6 | impl DependencyUtils {
+   | -------------------- associated functions in this implementation
+...
+66 |     pub fn to_simple_deps(deps: &HashMap<String, Dependency>) -> HashMap<String, String> {
+   |            ^^^^^^^^^^^^^^
+...
+73 |     pub fn extract_nest_deps(deps: &HashMap<String, Dependency>, nest_name: &str) -> HashMap<String, String> {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: fields `pretend_version` and `is_path` are never read
+ --> src\resolver\version_alias.rs:5:9
+  |
+3 | pub struct VersionAlias {
+  |            ------------ fields in this struct
+4 |     pub actual_version: String,
+5 |     pub pretend_version: String,
+  |         ^^^^^^^^^^^^^^^
+6 |     pub is_path: bool,
+  |         ^^^^^^^
+  |
+  = note: `VersionAlias` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `by_string` is never read
+  --> src\resolver\version_index.rs:24:5
+   |
+17 | pub struct VersionIndex {
+   |            ------------ field in this struct
+...
+24 |     by_string: HashMap<String, usize>,
+   |     ^^^^^^^^^
+
+warning: methods `index_of` and `iter_versions` are never used
+   --> src\resolver\version_index.rs:125:12
+    |
+ 27 | impl VersionIndex {
+    | ----------------- methods in this implementation
+...
+125 |     pub fn index_of(&self, v_str: &str) -> Option<usize> {
+    |            ^^^^^^^^
+...
+129 |     pub fn iter_versions(&self) -> impl Iterator<Item = (usize, &semver::Version)> {
+    |            ^^^^^^^^^^^^^
+
+warning: methods `and`, `or`, `highest`, `lowest`, `is_empty`, and `count` are never used
+   --> src\resolver\version_index.rs:138:12
+    |
+137 | impl VersionSet {
+    | --------------- methods in this implementation
+138 |     pub fn and(&self, other: &Self) -> Self {
+    |            ^^^
+...
+145 |     pub fn or(&self, other: &Self) -> Self {
+    |            ^^
+...
+153 |     pub fn highest(&self) -> Option<usize> {
+    |            ^^^^^^^
+...
+158 |     pub fn lowest(&self) -> Option<usize> {
+    |            ^^^^^^
+...
+162 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+...
+166 |     pub fn count(&self) -> usize {
+    |            ^^^^^
+
+warning: variant `NoVersions` is never constructed
+  --> src\resolver\error.rs:22:5
+   |
+10 | pub enum ResolverError {
+   |          ------------- variant in this enum
+...
+22 |     NoVersions(String),
+   |     ^^^^^^^^^^
+   |
+   = note: `ResolverError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `package`, `left`, and `right` are never read
+  --> src\resolver\propagation.rs:48:9
+   |
+47 | pub struct ConflictTrace {
+   |            ------------- fields in this struct
+48 |     pub package: String,
+   |         ^^^^^^^
+49 |     pub left: String,
+   |         ^^^^
+50 |     pub right: String,
+   |         ^^^^^
+   |
+   = note: `ConflictTrace` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `sdks` and `overrides` are never read
+   --> src\resolver\pubgrub_adapter.rs:107:9
+    |
+105 | pub struct HatchProvider {
+    |            ------------- fields in this struct
+106 |     pub cache: Arc<MetadataCache>,
+107 |     pub sdks: SdkConstraints,
+    |         ^^^^
+108 |     pub overrides: Overrides,
+    |         ^^^^^^^^^
+
+warning: struct `RegistryManager` is never constructed
+ --> src\registry\mod.rs:6:12
+  |
+6 | pub struct RegistryManager {
+  |            ^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src\registry\mod.rs:11:12
+   |
+10 | impl RegistryManager {
+   | -------------------- associated function in this implementation
+11 |     pub fn new() -> Self {
+   |            ^^^
+
+warning: struct `ResolvedDependency` is never constructed
+  --> src\registry\traits.rs:34:12
+   |
+34 | pub struct ResolvedDependency {
+   |            ^^^^^^^^^^^^^^^^^^
+
+warning: methods `get_version_metadata`, `search_packages`, `get_available_versions`, `registry_url`, and `registry_name` are never used
+  --> src\registry\traits.rs:56:14
+   |
+51 | pub trait Registry: Send + Sync {
+   |           -------- methods in this trait
+...
+56 |     async fn get_version_metadata(&self, name: &str, version: &str) -> Result<PackageVersion>;
+   |              ^^^^^^^^^^^^^^^^^^^^
+...
+59 |     async fn search_packages(&self, query: &str) -> Result<Vec<PackageMetadata>>;
+   |              ^^^^^^^^^^^^^^^
+...
+65 |     async fn get_available_versions(&self, name: &str) -> Result<Vec<String>>;
+   |              ^^^^^^^^^^^^^^^^^^^^^^
+...
+68 |     fn registry_url(&self) -> &str;
+   |        ^^^^^^^^^^^^
+...
+71 |     fn registry_name(&self) -> &str;
+   |        ^^^^^^^^^^^^^
+
+warning: method `satisfies` is never used
+   --> src\registry\traits.rs:207:12
+    |
+103 | impl VersionConstraint {
+    | ---------------------- method in this implementation
+...
+207 |     pub fn satisfies(&self, version: &str) -> bool {
+    |            ^^^^^^^^^
+
+warning: associated functions `with_base_url` and `with_url` are never used
+  --> src\registry\pub_dev.rs:50:12
+   |
+17 | impl PubDevRegistry {
+   | ------------------- associated functions in this implementation
+...
+50 |     pub fn with_base_url(url: String) -> Self {
+   |            ^^^^^^^^^^^^^
+...
+81 |     pub fn with_url(url: String) -> Self {
+   |            ^^^^^^^^
+
+warning: struct `MissingChecksum` is never constructed
+  --> src\registry\pub_dev.rs:94:12
+   |
+94 | pub struct MissingChecksum {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `PubDevSearchResult` is never constructed
+   --> src\registry\pub_dev.rs:337:8
+    |
+337 | struct PubDevSearchResult {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `PubDevSearchPackage` is never constructed
+   --> src\registry\pub_dev.rs:342:8
+    |
+342 | struct PubDevSearchPackage {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `PubDevSearchLatest` is never constructed
+   --> src\registry\pub_dev.rs:348:8
+    |
+348 | struct PubDevSearchLatest {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: associated function `get_fvm_path` is never used
+  --> src\fvm\detector.rs:19:12
+   |
+ 8 | impl FvmDetector {
+   | ---------------- associated function in this implementation
+...
+19 |     pub fn get_fvm_path() -> Result<PathBuf> {
+   |            ^^^^^^^^^^^^
+
+warning: associated functions `remove_flutter_version` and `list_available_versions` are never used
+   --> src\fvm\installer.rs:67:12
+    |
+ 11 | impl FvmInstaller {
+    | ----------------- associated functions in this implementation
+...
+ 67 |     pub fn remove_flutter_version(version: &str) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+126 |     pub fn list_available_versions() -> Result<Vec<String>> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `get_project_info` is never used
+   --> src\fvm\manager.rs:144:12
+    |
+ 12 | impl FvmManager {
+    | --------------- method in this implementation
+...
+144 |     pub fn get_project_info(&self) -> Result<ProjectFlutterInfo> {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: struct `ProjectFlutterInfo` is never constructed
+   --> src\fvm\manager.rs:170:12
+    |
+170 | pub struct ProjectFlutterInfo {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: struct `FileGenerator` is never constructed
+ --> src\generator\mod.rs:4:12
+  |
+4 | pub struct FileGenerator {
+  |            ^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+ --> src\generator\mod.rs:9:12
+  |
+8 | impl FileGenerator {
+  | ------------------ associated function in this implementation
+9 |     pub fn new() -> Self {
+  |            ^^^
+
+warning: struct `BackendClient` is never constructed
+ --> src\backend\mod.rs:5:12
+  |
+5 | pub struct BackendClient {
+  |            ^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> src\backend\mod.rs:10:12
+   |
+ 9 | impl BackendClient {
+   | ------------------ associated function in this implementation
+10 |     pub fn new() -> Self {
+   |            ^^^
+
+warning: struct `SubmoduleManager` is never constructed
+ --> src\submodules\mod.rs:4:12
+  |
+4 | pub struct SubmoduleManager {
+  |            ^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+ --> src\submodules\mod.rs:9:12
+  |
+8 | impl SubmoduleManager {
+  | --------------------- associated function in this implementation
+9 |     pub fn new() -> Self {
+  |            ^^^
+
+warning: associated function `is_git_repo` is never used
+  --> src\utils\mod.rs:11:12
+   |
+ 9 | impl Utilities {
+   | -------------- associated function in this implementation
+10 |     /// Check if we're in a git repository
+11 |     pub fn is_git_repo() -> bool {
+   |            ^^^^^^^^^^^
+
+warning: struct `ResolvedPackage` is never constructed
+  --> src\pubspec\generator.rs:14:12
+   |
+14 | pub struct ResolvedPackage {
+   |            ^^^^^^^^^^^^^^^
+
+warning: struct `PubspecGenerator` is never constructed
+  --> src\pubspec\generator.rs:22:12
+   |
+22 | pub struct PubspecGenerator;
+   |            ^^^^^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> src\pubspec\generator.rs:26:12
+    |
+ 24 | impl PubspecGenerator {
+    | --------------------- associated functions in this implementation
+ 25 |     /// Generate pubspec.yaml from manifest and resolved dependencies
+ 26 |     pub fn generate(
+    |            ^^^^^^^^
+...
+101 |     pub fn generate_lock_file(
+    |            ^^^^^^^^^^^^^^^^^^
+...
+149 |     fn build_dependencies_section(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+179 |     fn build_flutter_section(manifest: &HatchManifest) -> Result<BTreeMap<String, Value>> {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+...
+191 |     fn build_sdks_section() -> Result<Value> {
+    |        ^^^^^^^^^^^^^^^^^^
+...
+202 |     pub fn update_existing_pubspec(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+...
+241 |     pub fn validate_pubspec(pubspec_path: &Path) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^
+...
+262 |     pub fn parse_existing_dependencies(pubspec_path: &Path) -> Result<HashMap<String, String>> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `get_package_with_checksum`, `get_packages`, and `clear_package` are never used
+   --> src\cache\manager.rs:24:18
+    |
+ 15 | impl CacheManager {
+    | ----------------- associated items in this implementation
+...
+ 24 |     pub async fn get_package_with_checksum(
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+147 |     pub async fn get_packages(
+    |                  ^^^^^^^^^^^^
+...
+290 |     pub fn clear_package(registry: &str, name: &str, version: Option<&str>) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+
+warning: associated function `get_pubdev_archive_url` is never used
+   --> src\cache\downloader.rs:241:12
+    |
+ 73 | impl PackageDownloader {
+    | ---------------------- associated function in this implementation
+...
+241 |     pub fn get_pubdev_archive_url(name: &str, version: &str) -> String {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated functions `extract_tar_gz` and `move_directory_contents` are never used
+   --> src\cache\extractor.rs:102:12
+    |
+ 72 | impl PackageExtractor {
+    | --------------------- associated functions in this implementation
+...
+102 |     pub fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
+    |            ^^^^^^^^^^^^^^
+...
+391 |     fn move_directory_contents(src: &Path, dst: &Path) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `hatch_package_version` is never read
+  --> src\cache\package_manifest.rs:65:9
+   |
+63 | pub struct HatchPackageOverrides {
+   |            --------------------- field in this struct
+64 |     #[serde(default)]
+65 |     pub hatch_package_version: u32,
+   |         ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `HatchPackageOverrides` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated functions `metadata_path` and `is_package_cached` are never used
+  --> src\cache\paths.rs:76:12
+   |
+13 | impl CachePaths {
+   | --------------- associated functions in this implementation
+...
+76 |     pub fn metadata_path(registry: &str, name: &str) -> Result<PathBuf> {
+   |            ^^^^^^^^^^^^^
+...
+91 |     pub fn is_package_cached(registry: &str, name: &str, version: &str) -> Result<bool> {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: methods `save_to_disk` and `get_cache` are never used
+   --> src\cache\metadata_cache.rs:112:18
+    |
+ 34 | impl MetadataCache {
+    | ------------------ methods in this implementation
+...
+112 |     pub async fn save_to_disk(&self, package: &str, versions: &[PackageVersion]) -> Result<()> {
+    |                  ^^^^^^^^^^^^
+...
+116 |     pub fn get_cache(&self) -> &RwLock<HashMap<String, Arc<Vec<PackageVersion>>>> {
+    |            ^^^^^^^^^
+
+warning: associated functions `has_package`, `get_packages`, `find_nearest`, and `merge` are never used
+  --> src\lockfile\parser.rs:69:12
+   |
+43 | impl LockfileParser {
+   | ------------------- associated functions in this implementation
+...
+69 |     pub fn has_package(lockfile: &HatchLockfile, name: &str, version: &str) -> bool {
+   |            ^^^^^^^^^^^
+...
+76 |     pub fn get_packages(lockfile: &HatchLockfile) -> Vec<(String, String)> {
+   |            ^^^^^^^^^^^^
+...
+86 |     pub fn find_nearest(start_dir: &Path) -> Result<Option<PathBuf>> {
+   |            ^^^^^^^^^^^^
+...
+98 |     pub fn merge(existing: &HatchLockfile, new: HatchLockfile) -> HatchLockfile {
+   |            ^^^^^
+
+warning: associated functions `generate_from_resolved` and `is_up_to_date` are never used
+  --> src\lockfile\generator.rs:63:12
+   |
+12 | impl LockfileGenerator {
+   | ---------------------- associated functions in this implementation
+...
+63 |     pub fn generate_from_resolved(
+   |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+77 |     pub fn is_up_to_date(_manifest: &HatchManifest, lockfile_path: &Path) -> bool {
+   |            ^^^^^^^^^^^^^
+
+warning: associated functions `run_pre_build`, `run_post_build`, and `run_scripts` are never used
+   --> src\scripts\runner.rs:46:12
+    |
+ 12 | impl ScriptRunner {
+    | ----------------- associated functions in this implementation
+...
+ 46 |     pub fn run_pre_build(manifest: &HatchManifest) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+...
+ 50 |     pub fn run_post_build(manifest: &HatchManifest) -> Result<()> {
+    |            ^^^^^^^^^^^^^^
+...
+171 |     pub fn run_scripts(manifest: &HatchManifest, script_names: Vec<String>) -> Result<()> {
+    |            ^^^^^^^^^^^
+
+warning: method `is_argv` is never used
+  --> src\scripts\parser.rs:41:12
+   |
+19 | impl ScriptCommand {
+   | ------------------ method in this implementation
+...
+41 |     pub fn is_argv(&self) -> bool {
+   |            ^^^^^^^
+
+warning: function `reset_package_trust` is never used
+   --> src\scripts\trust.rs:219:8
+    |
+219 | pub fn reset_package_trust(package: &str) -> Result<usize> {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `ICON_PNG` is never used
+ --> src\branding.rs:1:11
+  |
+1 | pub const ICON_PNG: &[u8] = include_bytes!("../icon.png");
+  |           ^^^^^^^^
+
+warning: constant `HATCH_BANNER` is never used
+  --> src\branding.rs:12:11
+   |
+12 | pub const HATCH_BANNER: &str = r#"
+   |           ^^^^^^^^^^^^
+
+warning: function `get_version_string` is never used
+  --> src\branding.rs:19:8
+   |
+19 | pub fn get_version_string() -> String {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `HatchAuth` is never constructed
+ --> src\auth\mod.rs:9:12
+  |
+9 | pub struct HatchAuth {
+  |            ^^^^^^^^^
+
+warning: struct `NestAuth` is never constructed
+  --> src\auth\mod.rs:22:12
+   |
+22 | pub struct NestAuth {
+   |            ^^^^^^^^
+
+warning: struct `GitAuth` is never constructed
+  --> src\auth\mod.rs:29:12
+   |
+29 | pub struct GitAuth {
+   |            ^^^^^^^
+
+warning: struct `AuthManager` is never constructed
+  --> src\auth\mod.rs:35:12
+   |
+35 | pub struct AuthManager;
+   |            ^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> src\auth\mod.rs:39:12
+    |
+ 37 | impl AuthManager {
+    | ---------------- associated functions in this implementation
+ 38 |     /// Load authentication configuration
+ 39 |     pub fn load() -> Result<HatchAuth> {
+    |            ^^^^
+...
+ 68 |     fn global_auth_path() -> Result<PathBuf> {
+    |        ^^^^^^^^^^^^^^^^
+...
+ 75 |     fn merge_auth(mut base: HatchAuth, overlay: HatchAuth) -> HatchAuth {
+    |        ^^^^^^^^^^
+...
+ 98 |     pub fn get_nest_auth(nest_name: &str) -> Result<Option<NestAuth>> {
+    |            ^^^^^^^^^^^^^
+...
+104 |     pub fn save_local_auth(auth: &HatchAuth) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^
+...
+113 |     pub fn add_nest_auth(nest_name: String, token: String, username: Option<String>) -> Result<()> {
+    |            ^^^^^^^^^^^^^
+...
+129 |     pub fn remove_nest_auth(nest_name: &str) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^
+...
+145 |     pub fn create_sample_auth_file(path: &Path) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `hatch` (bin "hatch") generated 132 warnings (26 duplicates) (run `cargo fix --bin "hatch" -p hatch` to apply 13 suggestions)
+warning: `hatch` (lib) generated 29 warnings (29 duplicates)
+    Finished `bench` profile [optimized] target(s) in 0.41s
+     Running benches\resolver.rs (target\release\deps\resolver-303bf5ac3a899c92.exe)
+Gnuplot not found, using plotters backend
+🔍 Resolving 3 direct dependencies...
+
+thread 'tokio-runtime-worker' (33596) panicked at C:\Users\mario\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pubgrub-0.2.1\src\internal\partial_solution.rs:131:25:
+add_derivation should not be called after a decision
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+🔍 Resolving 51 direct dependencies...
+🔍 Resolving 51 direct dependencies...
+SKIP bench_resolve_cold: set HATCH_BENCH_NETWORK=1 to run network-dependent benches
+Benchmarking parse_constraint/parse_and_satisfy
+Benchmarking parse_constraint/parse_and_satisfy: Warming up for 3.0000 s
+Benchmarking parse_constraint/parse_and_satisfy: Collecting 50 samples in estimated 5.0015 s (3.4M iterations)
+Benchmarking parse_constraint/parse_and_satisfy: Analyzing
+parse_constraint/parse_and_satisfy
+                        time:   [1.4771 µs 1.4789 µs 1.4809 µs]
+                        change: [+5.9152% +6.3359% +6.6266%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 1 outliers among 50 measurements (2.00%)
+  1 (2.00%) high mild
+
+SKIP bench_extract_tarball: no http-*.tar.gz found in ~/.hatch/cache/downloads or bench cache. Run `hatch install` against a project that uses http to seed it.

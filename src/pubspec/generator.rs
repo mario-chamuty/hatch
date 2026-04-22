@@ -6,7 +6,17 @@ use std::path::Path;
 use log::{debug, info};
 
 use crate::manifest::schema::HatchManifest;
-use crate::resolver::sat::ResolvedPackage;
+
+/// Local view of a resolved package used by this generator. Replaces the
+/// retired `resolver::sat::ResolvedPackage`. Callers build these from the
+/// resolver's `ResolutionGraph`.
+#[derive(Debug, Clone)]
+pub struct ResolvedPackage {
+    pub name: String,
+    pub version: String,
+    pub dependencies: HashMap<String, String>,
+    pub source_constraint: String,
+}
 
 /// Generates pubspec.yaml from Hatch manifest and resolved dependencies
 pub struct PubspecGenerator;

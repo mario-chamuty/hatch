@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use log::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +78,21 @@ impl LockfileParser {
             .iter()
             .map(|(name, pkg)| (name.clone(), pkg.version.clone()))
             .collect()
+    }
+
+    /// Walk up from `start_dir` looking for the nearest `hatch.lock`.
+    /// Returns `Ok(None)` if none was found before reaching the filesystem
+    /// root.
+    pub fn find_nearest(start_dir: &Path) -> Result<Option<PathBuf>> {
+        let mut current: Option<&Path> = Some(start_dir);
+        while let Some(dir) = current {
+            let candidate = dir.join("hatch.lock");
+            if candidate.exists() {
+                return Ok(Some(candidate));
+            }
+            current = dir.parent();
+        }
+        Ok(None)
     }
 
     pub fn merge(existing: &HatchLockfile, new: HatchLockfile) -> HatchLockfile {

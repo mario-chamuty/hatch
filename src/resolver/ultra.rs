@@ -1,36 +1,62 @@
+//! High-level dependency resolver.
+//!
+//! Public entry point is [`Resolver`] (formerly `UltraResolver`). A thin
+//! type alias retains the old name for backwards compatibility.
+//!
+//! Pipeline:
+//! 1. Compute manifest hash and check the resolution cache (skipped when a
+//!    local-path dep is present).
+//! 2. If a `hatch.lock` is on disk and still satisfies every manifest
+//!    constraint, use it directly (warm-start).
+//! 3. Prime the metadata cache for the root deps via the legacy
+//!    incremental fetch loop – this guarantees the downstream propagator
+//!    and pubgrub adapter have data to work with.
+//! 4. Run the top-down interval propagator. If every interval collapses to
+//!    a single version and no conflicts were observed, the propagator's
+//!    output is the final graph.
+//! 5. Otherwise, hand the residual constraints to the pubgrub adapter.
+//! 6. Persist to the resolution cache and emit `hatch.lock`.
+
 use anyhow::{anyhow, Result};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use futures::future::join_all;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::Semaphore;
 use std::sync::Arc;
 use log::{debug, info, warn};
 use std::time::Instant;
 
 use crate::manifest::schema::HatchManifest;
-use crate::manifest::Dependency;
 use crate::registry::pub_dev::PubDevRegistry;
-use crate::registry::traits::{PackageVersion, VersionConstraint, Registry};
+use crate::registry::traits::{VersionConstraint, Registry, ParsedConstraint};
 use super::version_alias::VersionAlias;
+use super::version_index::VersionIndex;
 use super::dependency_utils::DependencyUtils;
+use super::graph::ResolutionGraph;
+use super::propagation::{is_sdk_pseudo_package, Propagator, Overrides};
+use super::{resolution_cache, subgraphs};
+use super::error::ResolverError;
 use crate::cache::metadata_cache::MetadataCache;
 use crate::cli::verbosity;
 use crate::git::GitResolver;
-use std::path::PathBuf;
 
-pub struct UltraResolver {
+/// Backwards-compatible alias for the old name. New code should use
+/// [`Resolver`].
+pub type UltraResolver = Resolver;
+
+pub struct Resolver {
     registry: PubDevRegistry,
     metadata_cache: Arc<MetadataCache>,
     resolved: HashMap<String, String>,
     resolved_paths: HashMap<String, std::path::PathBuf>,
-    resolved_batch: HashMap<String, usize>, // Track which batch/level each package belongs to
+    resolved_batch: HashMap<String, usize>,
+    resolved_deps: HashMap<String, HashMap<String, String>>,
     overrides: HashMap<String, VersionAlias>,
     local_packages: HashMap<String, String>,
 }
 
-impl UltraResolver {
+impl Resolver {
     pub async fn new() -> Self {
         let cache = Arc::new(MetadataCache::new());
-        // Load persistent metadata cache from disk
         let _ = cache.load_from_disk().await;
 
         Self {
@@ -39,6 +65,7 @@ impl UltraResolver {
             resolved: HashMap::new(),
             resolved_paths: HashMap::new(),
             resolved_batch: HashMap::new(),
+            resolved_deps: HashMap::new(),
             overrides: HashMap::new(),
             local_packages: HashMap::new(),
         }
@@ -47,7 +74,6 @@ impl UltraResolver {
     pub async fn with_manifest(manifest: &HatchManifest) -> Self {
         let mut resolver = Self::new().await;
 
-        // Parse override aliases
         if let Some(overrides) = &manifest.overrides {
             for (pkg_name, alias_str) in overrides {
                 if let Some(alias) = VersionAlias::parse(alias_str) {
@@ -56,17 +82,162 @@ impl UltraResolver {
             }
         }
 
-        // Extract local packages from new dependency format
         resolver.local_packages = DependencyUtils::extract_local_packages(&manifest);
-
         resolver
     }
 
+    /// Public resolve entrypoint. Returns a simple `name -> version` map
+    /// to preserve the existing install-path contract; richer info (deps,
+    /// paths) is available via the accessors below.
     pub async fn resolve(&mut self, manifest: &HatchManifest) -> Result<HashMap<String, String>> {
         let total_start = Instant::now();
-        info!("Starting ultra-fast dependency resolution");
+        info!("Starting dependency resolution");
 
-        // Handle SDK dependencies first
+        // ---- 1. Manifest-hash resolution cache ---------------------------
+        let manifest_hash = resolution_cache::compute_manifest_hash(manifest)?;
+        if let Some(hash) = &manifest_hash {
+            if let Some(entry) =
+                resolution_cache::try_load(hash, &self.metadata_cache).await
+            {
+                if verbosity::is_verbose() {
+                    println!("♻️  Using cached resolution (hash {})", &hash[..8]);
+                }
+                for (name, version) in entry.resolved {
+                    self.resolved.insert(name, version);
+                }
+                if verbosity::should_show_timings() {
+                    println!(
+                        "   ⏱️  Resolution (cache hit): {:.2}s",
+                        total_start.elapsed().as_secs_f32()
+                    );
+                }
+                return Ok(self.resolved.clone());
+            }
+        }
+
+        // ---- 2. SDK + git + local packages -----------------------------
+        self.seed_sdk_and_git(manifest)?;
+
+        // ---- 3. Root registry deps ------------------------------------
+        let mut all_deps: HashMap<String, String> = HashMap::new();
+        if let Some(deps) = &manifest.require {
+            all_deps.extend(DependencyUtils::extract_registry_deps(deps));
+        }
+        if let Some(dev_deps) = &manifest.require_dev {
+            all_deps.extend(DependencyUtils::extract_registry_deps(dev_deps));
+        }
+
+        if all_deps.is_empty() && self.resolved.is_empty() {
+            return Ok(self.resolved.clone());
+        }
+
+        println!("🔍 Resolving {} direct dependencies...", all_deps.len());
+
+        // ---- 4. Incremental metadata fetch (unchanged legacy loop) ----
+        self.incremental_fetch(&all_deps).await?;
+
+        // ---- 5. Propagation pass --------------------------------------
+        let root_constraints = self.build_root_constraints(&all_deps)?;
+        let propagator = Propagator::new(
+            &self.metadata_cache,
+            manifest.sdk.clone(),
+            self.override_versions(),
+        );
+        let prop_result = propagator.propagate(&root_constraints).await?;
+
+        // Bake propagation output into the resolver state.
+        for (name, ver) in &prop_result.resolved {
+            self.resolved.insert(name.clone(), ver.to_string());
+        }
+        for (name, deps) in &prop_result.resolved_deps {
+            self.resolved_deps.insert(name.clone(), deps.clone());
+        }
+
+        // ---- 6. Solver pass (only if needed) --------------------------
+        if !prop_result.partial.is_empty() || !prop_result.conflicts.is_empty() {
+            debug!(
+                "Propagation left {} partial intervals, {} conflicts – invoking subgraph solver",
+                prop_result.partial.len(),
+                prop_result.conflicts.len()
+            );
+            // Why: the synthetic root must declare *only* what the manifest
+            // declares. Merging propagation's `partial` into the root's
+            // dep list makes pubgrub attribute every transitive constraint
+            // to the root and produces spurious NoSolution errors. Pubgrub
+            // rediscovers transitive packages via `get_dependencies`, so
+            // they do not need to be injected at the root.
+            let residual = root_constraints.clone();
+            let locked = HashMap::new();
+            let sdks = manifest.sdk.clone();
+            let overrides = self.override_versions();
+            let root_name = manifest.name.clone();
+            let root_version = semver::Version::new(0, 0, 0);
+
+            let solved = subgraphs::solve_components(
+                self.metadata_cache.clone(),
+                sdks,
+                overrides,
+                locked,
+                root_name,
+                root_version,
+                residual,
+            )
+            .await;
+
+            match solved {
+                Ok(solution) => {
+                    if verbosity::is_verbose() {
+                        debug!(
+                            "Solved {} components ({} non-trivial)",
+                            solution.components, solution.non_trivial
+                        );
+                    }
+                    for (name, ver) in solution.resolved {
+                        self.resolved.insert(name, ver.to_string());
+                    }
+                }
+                Err(ResolverError::NoSolution(msg)) => {
+                    return Err(anyhow!("dependency resolution failed:\n{}", msg));
+                }
+                Err(e) => {
+                    return Err(anyhow!("resolver error: {e}"));
+                }
+            }
+        }
+
+        // ---- 7. Apply fallbacks ---------------------------------------
+        // Fill in deps for every resolved package so downstream callers
+        // (lockfile writer, pubspec writer) have a complete graph without a
+        // second metadata walk.
+        self.hydrate_resolved_deps().await;
+
+        // ---- 8. Write resolution cache + lockfile ---------------------
+        if let Some(hash) = &manifest_hash {
+            use std::collections::BTreeMap;
+            let resolved_bt: BTreeMap<String, String> = self
+                .resolved
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let paths_bt: BTreeMap<String, String> = self
+                .resolved_paths
+                .iter()
+                .map(|(k, v)| (k.clone(), v.to_string_lossy().to_string()))
+                .collect();
+            let _ = resolution_cache::write(hash, &resolved_bt, &paths_bt);
+        }
+
+        if verbosity::should_show_timings() {
+            println!(
+                "   ⏱️  Total resolution time: {:.2}s",
+                total_start.elapsed().as_secs_f32()
+            );
+        }
+
+        Ok(self.resolved.clone())
+    }
+
+    fn seed_sdk_and_git(&mut self, manifest: &HatchManifest) -> Result<()> {
         let mut sdk_deps = Vec::new();
         if let Some(deps) = &manifest.require {
             sdk_deps.extend(DependencyUtils::extract_sdk_deps(deps));
@@ -77,36 +248,12 @@ impl UltraResolver {
 
         for (name, sdk) in sdk_deps {
             if sdk == "flutter" {
-                println!("📱 Resolving SDK dependency: {} (Flutter SDK)", name);
-
-                // Get Flutter SDK path
-                let flutter_sdk = std::env::var("FLUTTER_ROOT")
-                    .or_else(|_| std::env::var("FLUTTER_HOME"))
-                    .unwrap_or_else(|_| {
-                        // Try to detect Flutter SDK using FVM or standard installation
-                        if let Ok(output) = std::process::Command::new("flutter")
-                            .arg("--version")
-                            .arg("--machine")
-                            .output()
-                        {
-                            // Flutter is in PATH
-                            "flutter".to_string()
-                        } else {
-                            // Default Flutter SDK location
-                            dirs::home_dir()
-                                .map(|p| p.join("fvm/default").to_string_lossy().to_string())
-                                .unwrap_or_else(|| "flutter".to_string())
-                        }
-                    });
-
-                self.resolved.insert(name.clone(), "sdk".to_string());
-                // SDK packages don't need paths as they're handled by Flutter itself
+                self.resolved.insert(name, "sdk".to_string());
             } else {
-                warn!("Unknown SDK type '{}' for package '{}'", sdk, name);
+                warn!("Unknown SDK type '{}' for package", sdk);
             }
         }
 
-        // Handle Git dependencies
         let mut git_deps = Vec::new();
         if let Some(deps) = &manifest.require {
             git_deps.extend(DependencyUtils::extract_git_deps(deps));
@@ -116,320 +263,167 @@ impl UltraResolver {
         }
 
         for (name, git_url, git_ref) in git_deps {
-            println!("🔗 Resolving git dependency: {}", name);
             let cache_dir = GitResolver::get_cache_dir(&git_url, git_ref.as_deref())?;
-
             if !GitResolver::is_valid_git_repo(&cache_dir, &git_url) {
-                println!("   Cloning {}...", git_url);
                 GitResolver::clone_repository(&git_url, git_ref.as_deref(), &cache_dir)?;
-            } else {
-                println!("   Using cached git repository");
             }
-
             self.resolved.insert(name.clone(), "git".to_string());
             self.resolved_paths.insert(name, cache_dir);
         }
 
-        // Collect all root dependencies (convert from Dependency to simple strings)
-        let mut all_deps = HashMap::new();
-
-        if let Some(deps) = &manifest.require {
-            // Extract only registry dependencies (not local or git)
-            all_deps.extend(DependencyUtils::extract_registry_deps(deps));
-        }
-
-        if let Some(dev_deps) = &manifest.require_dev {
-            all_deps.extend(DependencyUtils::extract_registry_deps(dev_deps));
-        }
-
-        println!("🔍 Resolving {} direct dependencies...", all_deps.len());
-
-        // Aggressively pre-fetch ALL possible metadata
-        let fetch_start = Instant::now();
-        self.prefetch_all_metadata(&all_deps).await?;
-
-        if verbosity::should_show_timings() {
-            println!("   ⏱️  Metadata fetch: {:.2}s", fetch_start.elapsed().as_secs_f32());
-        }
-
-        // Now resolve with all metadata already cached
-        let resolve_start = Instant::now();
-
-        // Batch 0: Direct dependencies
-        for (name, constraint) in &all_deps {
-            if Self::is_flutter_sdk_package(name) || self.local_packages.contains_key(name) {
-                continue;
-            }
-            self.resolve_package(name, constraint, "root", 0).await?;
-        }
-
-        // Process ALL transitive dependencies - keep going until NO new packages are found
-        let mut dependency_waves = 0;
-        let mut failed_packages = HashSet::new(); // Track packages that failed to resolve
-
-        loop {
-            dependency_waves += 1;
-            let mut new_packages_found = false;
-            let mut queue = VecDeque::new();
-
-            // Add all transitive deps from currently resolved packages to queue
-            for (pkg_name, version) in &self.resolved.clone() {
-                if let Some(metadata) = self.metadata_cache.get(pkg_name).await {
-                    if let Some(version_info) = metadata.iter().find(|v| v.version == *version) {
-                        for (dep_name, dep_constraint) in &version_info.dependencies {
-                            // Skip Flutter SDK packages and already processed packages
-                            if Self::is_flutter_sdk_package(dep_name) ||
-                               self.resolved.contains_key(dep_name) ||
-                               failed_packages.contains(dep_name) {
-                                continue;
-                            }
-                            queue.push_back((dep_name.clone(), dep_constraint.clone(), pkg_name.clone()));
-                        }
-                    }
-                }
-            }
-
-            // If no packages to process, we're done
-            if queue.is_empty() {
-                debug!("Transitive dependency resolution complete after {} waves", dependency_waves);
-                break;
-            }
-
-            // Process this wave of dependencies
-            while let Some((pkg_name, constraint_str, requester)) = queue.pop_front() {
-                if self.resolved.contains_key(&pkg_name) || failed_packages.contains(&pkg_name) {
-                    continue;
-                }
-
-                // Fetch metadata if we don't have it yet
-                if !self.metadata_cache.contains(&pkg_name).await {
-                    debug!("Fetching missing metadata for {}", pkg_name);
-                    match self.registry.get_package_metadata(&pkg_name).await {
-                        Ok(metadata) => {
-                            self.metadata_cache.insert(pkg_name.clone(), metadata.versions).await;
-                        }
-                        Err(_) => {
-                            // Package doesn't exist - mark as failed to prevent retries
-                            failed_packages.insert(pkg_name.clone());
-                            debug!("Package {} not found, marking as failed", pkg_name);
-                            continue;
-                        }
-                    }
-                }
-
-                match self.resolve_package(&pkg_name, &constraint_str, &requester, dependency_waves).await {
-                    Ok(_) => {
-                        new_packages_found = true;
-                    }
-                    Err(_) => {
-                        // Failed to resolve - mark as failed to prevent retries
-                        failed_packages.insert(pkg_name.clone());
-                        debug!("Failed to resolve {}, marking as failed", pkg_name);
-                    }
-                }
-            }
-
-            // Safety check to prevent infinite loops
-            if dependency_waves > 20 {
-                warn!("Stopping transitive resolution at wave {} to prevent infinite loops", dependency_waves);
-                break;
-            }
-        }
-
-        if verbosity::should_show_timings() {
-            println!("   ⏱️  Resolution: {:.2}s", resolve_start.elapsed().as_secs_f32());
-            println!("   ⏱️  Total time: {:.2}s", total_start.elapsed().as_secs_f32());
-        }
-
-        Ok(self.resolved.clone())
-    }
-
-    async fn resolve_package(&mut self, name: &str, constraint_str: &str, requester: &str, batch: usize) -> Result<()> {
-        // Check for local package
-        if let Some(local_path) = self.local_packages.get(name) {
-            debug!("Using local package {} at {}", name, local_path);
-            self.resolved.insert(name.to_string(), "local".to_string());
-            self.resolved_paths.insert(name.to_string(), local_path.into());
-            return Ok(());
-        }
-
-        // Check for version override
-        if let Some(alias) = self.overrides.get(name) {
-            self.resolved.insert(name.to_string(), alias.actual_version.clone());
-            return Ok(());
-        }
-
-        // Get cached metadata
-        let versions = match self.metadata_cache.get(name).await {
-            Some(v) => v,
-            None => {
-                if requester == "root" {
-                    return Err(anyhow!("Required package {} not found", name));
-                } else {
-                    warn!("Optional dependency {} not found", name);
-                    return Ok(());
-                }
-            }
-        };
-
-        // Find best version
-        let constraint = VersionConstraint::parse(constraint_str)?;
-
-        // Debug: Show available versions for problematic packages
-        if ["web", "mime", "file", "dio_web_adapter", "logging", "bloc", "js", "rxdart", "xdg_directories"].contains(&name) {
-            println!("🐛 Debug {} constraint='{}' has {} versions: {:?}",
-                name, constraint_str, versions.len(),
-                versions.iter().map(|v| &v.version).collect::<Vec<_>>());
-
-            // Also show which versions satisfy the constraint
-            let satisfying: Vec<_> = versions.iter().enumerate()
-                .filter(|(_, v)| constraint.satisfies(&v.version))
-                .map(|(idx, v)| format!("{}({})", v.version, idx))
-                .collect();
-            println!("🐛 Satisfying versions: {:?}", satisfying);
-        }
-
-        let matching_version = Self::find_best_version(&versions, &constraint);
-
-        if let Some(idx) = matching_version {
-            let selected = &versions[idx];
-            self.resolved.insert(name.to_string(), selected.version.clone());
-            self.resolved_batch.insert(name.to_string(), batch);
-            if crate::cli::verbosity::is_debug() {
-                println!("📦 Resolved {} @ {} (Batch {})", name, selected.version, batch);
-            }
-        } else {
-            if requester == "root" {
-                return Err(anyhow!("No version of {} satisfies constraint {}", name, constraint_str));
-            } else {
-                warn!("No version of {} satisfies {} (required by {})", name, constraint_str, requester);
-                // Use latest version as fallback for transitive deps
-                if let Some(latest) = versions.last() {
-                    self.resolved.insert(name.to_string(), latest.version.clone());
-                    self.resolved_batch.insert(name.to_string(), batch);
-                }
-            }
+        for (name, path) in &self.local_packages {
+            self.resolved.insert(name.clone(), "local".to_string());
+            self.resolved_paths.insert(name.clone(), path.into());
         }
 
         Ok(())
     }
 
-    async fn prefetch_all_metadata(&self, root_deps: &HashMap<String, String>) -> Result<()> {
-        let semaphore = Arc::new(Semaphore::new(100)); // Very aggressive parallelism
-        let mut all_packages = HashSet::new();
-        let mut failed_packages = HashSet::new(); // Track packages that failed to fetch
+    fn build_root_constraints(
+        &self,
+        all_deps: &HashMap<String, String>,
+    ) -> Result<HashMap<String, ParsedConstraint>> {
+        let mut out = HashMap::with_capacity(all_deps.len());
+        for (name, constraint_str) in all_deps {
+            if is_sdk_pseudo_package(name) || self.local_packages.contains_key(name) {
+                continue;
+            }
+            let parsed = VersionConstraint::parse(constraint_str)
+                .and_then(|c| c.to_parsed())
+                .unwrap_or_else(|_| ParsedConstraint::any());
+            out.insert(name.clone(), parsed);
+        }
+        Ok(out)
+    }
 
-        // Add root packages
-        for (name, _) in root_deps {
-            if !Self::is_flutter_sdk_package(name) && !self.local_packages.contains_key(name) {
-                all_packages.insert(name.clone());
+    fn override_versions(&self) -> Overrides {
+        let mut out = Overrides::new();
+        for (name, alias) in &self.overrides {
+            if let Ok(v) = semver::Version::parse(&alias.actual_version) {
+                out.insert(name.clone(), v);
             }
         }
+        out
+    }
 
-        // Fetch in expanding waves
-        let mut wave = 0;
-        loop {
-            wave += 1;
-            // Check which packages need fetching (excluding already failed ones)
-            let mut to_fetch = Vec::new();
-            for package in &all_packages {
-                if !self.metadata_cache.contains(package).await && !failed_packages.contains(package) {
-                    to_fetch.push(package.clone());
+    async fn hydrate_resolved_deps(&mut self) {
+        let names: Vec<String> = self.resolved.keys().cloned().collect();
+        for name in names {
+            if self.resolved_deps.contains_key(&name) {
+                continue;
+            }
+            let Some(version_str) = self.resolved.get(&name).cloned() else { continue };
+            if version_str == "sdk" || version_str == "git" || version_str == "local" {
+                continue;
+            }
+            if let Some(versions) = self.metadata_cache.get(&name).await {
+                if let Some(info) = versions.iter().find(|v| v.version == version_str) {
+                    self.resolved_deps
+                        .insert(name, info.dependencies.clone());
                 }
             }
+        }
+    }
 
+    async fn incremental_fetch(&mut self, all_deps: &HashMap<String, String>) -> Result<()> {
+        let semaphore = Arc::new(Semaphore::new(100));
+        let mut failed_packages: HashSet<String> = HashSet::new();
+
+        let mut to_fetch: Vec<(String, String, String)> = all_deps
+            .iter()
+            .filter(|(name, _)| !is_sdk_pseudo_package(name) && !self.local_packages.contains_key(name.as_str()))
+            .map(|(name, c)| (name.clone(), c.clone(), "root".to_string()))
+            .collect();
+
+        let mut wave = 0usize;
+        loop {
             if to_fetch.is_empty() {
                 break;
             }
+            wave += 1;
 
-            debug!("Wave {}: fetching {} packages", wave, to_fetch.len());
+            let mut fetch_tasks = Vec::new();
+            let mut already_cached = Vec::new();
 
-            // Fetch this wave in parallel
-            let mut tasks = Vec::new();
-            for package in to_fetch {
+            for (name, constraint, requester) in &to_fetch {
+                if self.metadata_cache.contains(name).await {
+                    already_cached.push((name.clone(), constraint.clone(), requester.clone()));
+                    continue;
+                }
                 let registry = self.registry.clone();
                 let cache = self.metadata_cache.clone();
                 let sem = semaphore.clone();
+                let pkg_name = name.clone();
 
-                tasks.push(tokio::spawn(async move {
+                fetch_tasks.push(tokio::spawn(async move {
                     let _permit = sem.acquire().await.unwrap();
-
-                    match registry.get_package_metadata(&package).await {
+                    match registry.get_package_metadata(&pkg_name).await {
                         Ok(metadata) => {
-                            // Extract dependencies to fetch next
-                            let mut deps = HashSet::new();
-                            for version in &metadata.versions {
-                                for (dep_name, _) in &version.dependencies {
-                                    if !Self::is_flutter_sdk_package(dep_name) {
-                                        deps.insert(dep_name.clone());
-                                    }
-                                }
-                            }
-
-                            cache.insert(package.clone(), metadata.versions).await;
-                            Ok((package, deps))
+                            cache.insert(pkg_name.clone(), metadata.versions).await;
+                            Ok(pkg_name)
                         }
-                        Err(e) => {
-                            debug!("Failed to fetch {}: {}", package, e);
-                            Err((package, e))
-                        }
+                        Err(_) => Err(pkg_name),
                     }
                 }));
             }
 
-            // Collect new dependencies from this wave
-            let results = join_all(tasks).await;
-            for result in results {
-                match result {
-                    Ok(Ok((_, deps))) => {
-                        for dep in deps {
-                            all_packages.insert(dep);
+            if !fetch_tasks.is_empty() {
+                for result in join_all(fetch_tasks).await {
+                    match result {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(pkg_name)) => {
+                            failed_packages.insert(pkg_name);
                         }
-                    }
-                    Ok(Err((package, e))) => {
-                        // Mark package as failed to avoid re-fetching
-                        failed_packages.insert(package.clone());
-
-                        // Special handling for specific known issues
-                        if package == "sqflite" {
-                            warn!("Package 'sqflite' has malformed metadata, skipping");
-                        } else if e.to_string().contains("not found") {
-                            debug!("Package '{}' not found on registry, marking as unavailable", package);
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Task error during fetch: {}", e);
+                        Err(e) => warn!("Task error during fetch: {}", e),
                     }
                 }
             }
 
-            // Only stop if we've gone too deep (preventing infinite loops)
-            if wave > 20 {
-                warn!("Stopping metadata fetch at wave {} with {} packages to prevent infinite loops", wave, all_packages.len());
+            // Pick selected versions so transitive deps come from the
+            // actual chosen version.
+            let mut next_chunk: Vec<(String, String, String)> = Vec::new();
+            let mut next_chunk_seen: HashSet<String> = HashSet::new();
+
+            for (name, constraint, requester) in to_fetch.iter().chain(already_cached.iter()) {
+                if failed_packages.contains(name) {
+                    continue;
+                }
+                // Select version for discovery purposes only.
+                let Some(idx) = self.metadata_cache.get_index(name).await else { continue };
+                let parsed = match VersionConstraint::parse(constraint)
+                    .and_then(|c| c.to_parsed())
+                {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                let Some(pos) = idx.latest_matching(&parsed) else { continue };
+                let Some(version_info) = idx.get(pos) else { continue };
+
+                for (dep_name, dep_constraint) in &version_info.dependencies {
+                    if is_sdk_pseudo_package(dep_name)
+                        || self.local_packages.contains_key(dep_name)
+                        || failed_packages.contains(dep_name)
+                    {
+                        continue;
+                    }
+                    if next_chunk_seen.insert(dep_name.clone()) {
+                        next_chunk.push((dep_name.clone(), dep_constraint.clone(), name.clone()));
+                    }
+                }
+                // Prime deps for the install path.
+                self.resolved_deps
+                    .entry(name.clone())
+                    .or_insert_with(|| version_info.dependencies.clone());
+                let _ = requester;
+            }
+
+            to_fetch = next_chunk;
+            if wave > 30 {
+                warn!("Stopping incremental fetch at wave {}", wave);
                 break;
             }
         }
-
-        if !failed_packages.is_empty() {
-            debug!("Failed to fetch {} packages: {:?}", failed_packages.len(), failed_packages);
-        }
-
-        info!("Pre-fetched metadata for {} packages in {} waves", all_packages.len() - failed_packages.len(), wave);
         Ok(())
-    }
-
-    fn find_best_version(
-        versions: &[PackageVersion],
-        constraint: &VersionConstraint,
-    ) -> Option<usize> {
-        // Find the latest version that satisfies the constraint
-        let mut best_idx = None;
-        for (idx, pkg_version) in versions.iter().enumerate() {
-            if constraint.satisfies(&pkg_version.version) {
-                best_idx = Some(idx); // Keep updating to find the latest compatible version
-            }
-        }
-        best_idx
     }
 
     pub fn get_resolved(&self) -> &HashMap<String, String> {
@@ -444,15 +438,29 @@ impl UltraResolver {
         &self.resolved_batch
     }
 
-    /// Check if a package is part of the Flutter SDK (not available on pub.dev)
-    fn is_flutter_sdk_package(name: &str) -> bool {
-        matches!(name,
-            "flutter" |
-            "flutter_test" |
-            "flutter_web_plugins" |
-            "flutter_driver" |
-            "integration_test" |
-            "_macros"        // Dart SDK package
-        )
+    pub fn get_resolved_deps(&self) -> &HashMap<String, HashMap<String, String>> {
+        &self.resolved_deps
+    }
+
+    /// Produce a full [`ResolutionGraph`] from the resolver's internal
+    /// state. Call after `resolve`.
+    pub fn as_graph(&self) -> ResolutionGraph {
+        ResolutionGraph {
+            resolved: self.resolved.clone(),
+            deps: self.resolved_deps.clone(),
+            resolved_paths: self.resolved_paths.clone(),
+        }
+    }
+
+    pub fn metadata_cache(&self) -> &Arc<MetadataCache> {
+        &self.metadata_cache
+    }
+
+    /// Check if a package is part of the Flutter SDK.
+    pub fn is_flutter_sdk_package(name: &str) -> bool {
+        is_sdk_pseudo_package(name)
     }
 }
+
+// Keep the old `VersionIndex` re-export used by benches.
+pub use super::version_index::VersionIndex as _PublicVersionIndex;

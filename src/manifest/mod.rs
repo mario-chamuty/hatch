@@ -3,6 +3,7 @@ pub mod schema;
 pub mod validator;
 pub mod merger;
 pub mod dependency;
+pub mod lockfile;
 
 use anyhow::Result;
 use std::path::PathBuf;

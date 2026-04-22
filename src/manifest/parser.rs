@@ -1,6 +1,12 @@
 use anyhow::{anyhow, Context, Result};
 use std::path::Path;
+use once_cell::sync::Lazy;
 use regex::Regex;
+
+/// Pre-compiled regex for block comment stripping (avoids recompilation on every call)
+static BLOCK_COMMENT_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/").unwrap()
+});
 
 use super::schema::HatchManifest;
 
@@ -82,9 +88,8 @@ impl ManifestParser {
 
         let content = lines.join("\n");
 
-        // Also remove /* */ style comments
-        let re = Regex::new(r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/").unwrap();
-        re.replace_all(&content, "").to_string()
+        // Also remove /* */ style comments (using pre-compiled regex)
+        BLOCK_COMMENT_RE.replace_all(&content, "").to_string()
     }
 
     pub fn parse_with_overrides<P: AsRef<Path>>(

@@ -4,12 +4,66 @@ use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use indicatif::{ProgressBar, ProgressStyle};
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::time::Instant;
 
 use super::paths::CachePaths;
 use std::path::PathBuf;
 use crate::cli::verbosity;
+
+/// Sentinel value accepted by [`PackageDownloader::download_with_checksum`] and
+/// friends that indicates the caller has *intentionally* chosen to skip
+/// checksum verification for this one invocation (i.e. the user passed
+/// `--allow-unchecksummed` on the command line). Supplying this string is
+/// logged to both the console and `~/.hatch/audit.log`. It is NOT a config
+/// setting – it must be re-opted into on every invocation.
+pub const ALLOW_UNCHECKSUMMED_SENTINEL: &str = "@@HATCH_ALLOW_UNCHECKSUMMED@@";
+
+/// Base URL used for package archive downloads. Honours
+/// `HATCH_PUB_HOSTED_URL` / `PUB_HOSTED_URL` so E2E tests (and mirror
+/// deployments) can redirect archive fetches to a wiremock server. The
+/// default `https://pub.dartlang.org` matches the historical hard-coded
+/// value so production behaviour is unchanged.
+fn archive_base_url() -> String {
+    std::env::var("HATCH_PUB_HOSTED_URL")
+        .ok()
+        .or_else(|| std::env::var("PUB_HOSTED_URL").ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| "https://pub.dartlang.org".to_string())
+}
+
+/// Append one line to `~/.hatch/audit.log` recording a checksum-bypass event.
+/// Best-effort – failures are logged but never bubble.
+pub(crate) fn audit_log_unchecksummed(package: &str, version: &str) {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => {
+            warn!("audit: could not determine home directory for audit.log");
+            return;
+        }
+    };
+    let dir = home.join(".hatch");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("audit: failed to create {}: {}", dir.display(), e);
+        return;
+    }
+    let path = dir.join("audit.log");
+    let ts = chrono::Utc::now().to_rfc3339();
+    let line = format!(
+        "{ts}\tallow-unchecksummed\t{pkg}\t{ver}\n",
+        ts = ts, pkg = package, ver = version
+    );
+    use std::io::Write;
+    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut f) => {
+            if let Err(e) = f.write_all(line.as_bytes()) {
+                warn!("audit: failed to write {}: {}", path.display(), e);
+            }
+        }
+        Err(e) => warn!("audit: failed to open {}: {}", path.display(), e),
+    }
+}
 
 #[derive(Clone)]
 pub struct PackageDownloader {
@@ -30,19 +84,11 @@ impl PackageDownloader {
         Self { client }
     }
 
-    pub async fn download_from_pubdev(
-        &self,
-        name: &str,
-        version: &str,
-    ) -> Result<PathBuf> {
-        self.download_from_pubdev_with_checksum(name, version, None).await
-    }
-
     pub async fn download_from_pubdev_with_checksum(
         &self,
         name: &str,
         version: &str,
-        expected_sha256: Option<&str>,
+        expected_sha256: &str,
     ) -> Result<PathBuf> {
         let start = Instant::now();
         info!("Downloading {}@{} from pub.dev", name, version);
@@ -56,8 +102,8 @@ impl PackageDownloader {
         }
 
         let url = format!(
-            "https://pub.dartlang.org/packages/{}/versions/{}.tar.gz",
-            name, version
+            "{}/packages/{}/versions/{}.tar.gz",
+            archive_base_url(), name, version
         );
 
         debug!("Download URL: {}", url);
@@ -141,9 +187,16 @@ impl PackageDownloader {
                 name, version, size_mb, elapsed.as_secs_f32(), speed_mb);
         }
 
-        // Verify checksum if provided
-        if expected_sha256.is_some() {
-            match self.verify_checksum(&download_path, expected_sha256).await {
+        // Verify checksum (fail-closed). The sentinel value bypasses and writes
+        // to audit.log with a loud warning.
+        if expected_sha256 == ALLOW_UNCHECKSUMMED_SENTINEL {
+            warn!(
+                "⚠️  SECURITY: skipping checksum verification for {}@{} (--allow-unchecksummed)",
+                name, version
+            );
+            audit_log_unchecksummed(name, version);
+        } else {
+            match self.verify_checksum(&download_path, Some(expected_sha256)).await {
                 Ok(_) => {
                     info!("✓ Checksum verified for {}@{}", name, version);
                 }
@@ -158,22 +211,27 @@ impl PackageDownloader {
         Ok(download_path)
     }
 
-    pub async fn download(
-        &self,
-        registry: &str,
-        name: &str,
-        version: &str,
-    ) -> Result<PathBuf> {
-        self.download_with_checksum(registry, name, version, None).await
-    }
-
+    /// Download a package with a required checksum.
+    ///
+    /// `checksum` is required. If the caller genuinely wants to skip checksum
+    /// verification (e.g. because the registry did not provide one and the
+    /// user passed `--allow-unchecksummed` on the CLI), pass
+    /// [`ALLOW_UNCHECKSUMMED_SENTINEL`]. Any other missing/empty value is
+    /// rejected – there is no `Option::None` path.
     pub async fn download_with_checksum(
         &self,
         registry: &str,
         name: &str,
         version: &str,
-        checksum: Option<&str>,
+        checksum: &str,
     ) -> Result<PathBuf> {
+        if checksum.is_empty() {
+            return Err(anyhow!(
+                "Refusing to download {}@{}: checksum is required. \
+                 Pass --allow-unchecksummed to bypass (audited).",
+                name, version
+            ));
+        }
         match registry {
             "pub.dev" => self.download_from_pubdev_with_checksum(name, version, checksum).await,
             _ => Err(anyhow!("Unsupported registry: {}", registry)),
@@ -182,8 +240,8 @@ impl PackageDownloader {
 
     pub fn get_pubdev_archive_url(name: &str, version: &str) -> String {
         format!(
-            "https://pub.dartlang.org/packages/{}/versions/{}.tar.gz",
-            name, version
+            "{}/packages/{}/versions/{}.tar.gz",
+            archive_base_url(), name, version
         )
     }
 

@@ -207,24 +207,38 @@ impl PackageStorage {
         Ok(())
     }
 
-    /// Read package metadata
+    /// Read package metadata. Looks at the per-package sidecar first, and
+    /// falls back to the central `~/.hatch/cache/index.json` (populated by
+    /// `hatch cache prune --aggressive`).
     fn read_metadata(registry: &str, name: &str, version: &str) -> Result<CachedPackageInfo> {
         let package_dir = CachePaths::package_dir(registry, name, version)?;
         let metadata_path = package_dir.join(".hatch_metadata.json");
 
-        let content = std::fs::read_to_string(&metadata_path)?;
+        let (content, mtime_src) = if metadata_path.exists() {
+            let c = std::fs::read_to_string(&metadata_path)?;
+            (c, Some(metadata_path.clone()))
+        } else {
+            // Central index fallback.
+            let index_path = CachePaths::root()?.join("index.json");
+            let index_content = std::fs::read_to_string(&index_path)?;
+            let parsed: serde_json::Value = serde_json::from_str(&index_content)?;
+            let key = format!("{registry}/{name}/{version}");
+            let entry = parsed
+                .get(&key)
+                .ok_or_else(|| anyhow!("metadata missing for {key} in index.json"))?;
+            (entry.to_string(), Some(index_path))
+        };
+
         let mut metadata: CachedPackageInfo = serde_json::from_str(&content)?;
 
         // Add the path and modified time
         metadata.path = package_dir;
-        metadata.modified = if let Ok(meta) = std::fs::metadata(&metadata_path) {
-            if let Ok(modified) = meta.modified() {
-                chrono::DateTime::from(modified)
-            } else {
-                chrono::Local::now()
-            }
-        } else {
-            chrono::Local::now()
+        metadata.modified = match mtime_src.as_ref().and_then(|p| std::fs::metadata(p).ok()) {
+            Some(meta) => meta
+                .modified()
+                .map(chrono::DateTime::from)
+                .unwrap_or_else(|_| chrono::Local::now()),
+            None => chrono::Local::now(),
         };
 
         Ok(metadata)

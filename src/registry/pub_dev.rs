@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 use super::traits::{Registry, PackageMetadata, PackageVersion};
 
@@ -15,18 +15,50 @@ pub struct PubDevRegistry {
 }
 
 impl PubDevRegistry {
+    /// Default registry URL used when no override is in effect.
+    pub const DEFAULT_BASE_URL: &'static str = "https://pub.dev";
+
     pub fn new() -> Self {
-        // Create client with connection pooling for faster parallel requests
+        // Create client with connection pooling and HTTP/2 for faster parallel requests
         let client = Client::builder()
             .pool_max_idle_per_host(50)
             .pool_idle_timeout(std::time::Duration::from_secs(60))
             .timeout(std::time::Duration::from_secs(15))
+            .http2_adaptive_window(true)
+            .build()
+            .unwrap_or_else(|_| Client::new());
+
+        // `HATCH_PUB_HOSTED_URL` is the test/E2E override. `PUB_HOSTED_URL`
+        // is honoured too so users can point Hatch at a mirror (e.g. a
+        // corporate proxy) without code changes.
+        let base_url = std::env::var("HATCH_PUB_HOSTED_URL")
+            .ok()
+            .or_else(|| std::env::var("PUB_HOSTED_URL").ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim_end_matches('/').to_string())
+            .unwrap_or_else(|| Self::DEFAULT_BASE_URL.to_string());
+
+        Self {
+            client,
+            base_url,
+        }
+    }
+
+    /// Construct a registry that always targets the given base URL, ignoring
+    /// any `HATCH_PUB_HOSTED_URL` / `PUB_HOSTED_URL` environment variables.
+    /// Primarily used by integration tests that spin up a wiremock server.
+    pub fn with_base_url(url: String) -> Self {
+        let client = Client::builder()
+            .pool_max_idle_per_host(50)
+            .pool_idle_timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(15))
+            .http2_adaptive_window(true)
             .build()
             .unwrap_or_else(|_| Client::new());
 
         Self {
             client,
-            base_url: "https://pub.dev".to_string(),
+            base_url: url.trim_end_matches('/').to_string(),
         }
     }
 
@@ -54,6 +86,16 @@ impl PubDevRegistry {
     }
 }
 
+/// Error returned when a pub.dev version-detail response is missing the
+/// `archive_sha256` field. Surfaced as its own variant so callers can
+/// recognise the "missing checksum" case distinctly from "network failure".
+#[derive(Debug, thiserror::Error)]
+#[error("registry did not provide archive_sha256 for {name}@{version}")]
+pub struct MissingChecksum {
+    pub name: String,
+    pub version: String,
+}
+
 #[async_trait]
 impl Registry for PubDevRegistry {
     async fn get_package_metadata(&self, name: &str) -> Result<PackageMetadata> {
@@ -75,6 +117,22 @@ impl Registry for PubDevRegistry {
         let mut versions = Vec::new();
         for version_info in &pub_package.versions {
             if let Some(pubspec) = &version_info.pubspec {
+                // `archive_sha256` MUST be populated on the version-list
+                // endpoint according to pub.dev's API docs. If it is not,
+                // surface it as a distinct error so callers (the install
+                // command) can decide whether to bail or ride with
+                // `--allow-unchecksummed`.
+                let archive_sha256 = match version_info.archive_sha256.as_ref() {
+                    Some(s) if !s.is_empty() => Some(s.clone()),
+                    _ => {
+                        warn!(
+                            "pub.dev /api/packages/{} version {} is missing archive_sha256",
+                            name, version_info.version
+                        );
+                        None
+                    }
+                };
+
                 let version = PackageVersion {
                     version: version_info.version.clone(),
                     description: pubspec.description.clone(),
@@ -97,13 +155,14 @@ impl Registry for PubDevRegistry {
                     flutter_sdk: pubspec.environment.as_ref()
                         .and_then(|env| env.get("flutter"))
                         .cloned(),
-                    archive_sha256: version_info.archive_sha256.clone(),
+                    archive_sha256,
                 };
                 versions.push(version);
             }
         }
 
-        let latest = versions.first()
+        // pub.dev returns versions oldest-first, so last() is the latest
+        let latest = versions.last()
             .ok_or_else(|| anyhow!("No versions found for package '{}'", name))?
             .clone();
 
