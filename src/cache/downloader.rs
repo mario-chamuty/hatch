@@ -154,6 +154,12 @@ impl PackageDownloader {
             }
         }
 
+        // Hash inline while writing so we do not have to re-read the whole
+        // tarball back off disk just to verify the sha256.
+        use sha2::{Digest, Sha256};
+        let bypass_checksum = expected_sha256 == ALLOW_UNCHECKSUMMED_SENTINEL;
+        let mut hasher = if bypass_checksum { None } else { Some(Sha256::new()) };
+
         let mut file = File::create(&download_path).await?;
         let mut downloaded = 0u64;
         let mut stream = response.bytes_stream();
@@ -161,6 +167,9 @@ impl PackageDownloader {
         use futures_util::StreamExt;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| anyhow!("Download error: {}", e))?;
+            if let Some(h) = hasher.as_mut() {
+                h.update(&chunk);
+            }
             file.write_all(&chunk).await?;
 
             downloaded += chunk.len() as u64;
@@ -168,6 +177,7 @@ impl PackageDownloader {
                 pb.set_position(downloaded);
             }
         }
+        file.flush().await?;
 
         let elapsed = start.elapsed();
         let size_mb = downloaded as f64 / 1_048_576.0;
@@ -187,25 +197,22 @@ impl PackageDownloader {
                 name, version, size_mb, elapsed.as_secs_f32(), speed_mb);
         }
 
-        // Verify checksum (fail-closed). The sentinel value bypasses and writes
-        // to audit.log with a loud warning.
-        if expected_sha256 == ALLOW_UNCHECKSUMMED_SENTINEL {
+        if bypass_checksum {
             warn!(
                 "⚠️  SECURITY: skipping checksum verification for {}@{} (--allow-unchecksummed)",
                 name, version
             );
             audit_log_unchecksummed(name, version);
-        } else {
-            match self.verify_checksum(&download_path, Some(expected_sha256)).await {
-                Ok(_) => {
-                    info!("✓ Checksum verified for {}@{}", name, version);
-                }
-                Err(e) => {
-                    // Delete the corrupted file
-                    let _ = tokio::fs::remove_file(&download_path).await;
-                    return Err(anyhow!("Checksum verification failed for {}@{}: {}", name, version, e));
-                }
+        } else if let Some(h) = hasher {
+            let actual = format!("{:x}", h.finalize());
+            if actual != expected_sha256 {
+                let _ = tokio::fs::remove_file(&download_path).await;
+                return Err(anyhow!(
+                    "Checksum verification failed for {}@{}: expected {}, got {}",
+                    name, version, expected_sha256, actual
+                ));
             }
+            info!("✓ Checksum verified for {}@{}", name, version);
         }
 
         Ok(download_path)
