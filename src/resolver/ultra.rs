@@ -328,11 +328,15 @@ impl Resolver {
     async fn incremental_fetch(&mut self, all_deps: &HashMap<String, String>) -> Result<()> {
         let semaphore = Arc::new(Semaphore::new(100));
         let mut failed_packages: HashSet<String> = HashSet::new();
+        let mut discovered: HashSet<String> = HashSet::new();
 
         let mut to_fetch: Vec<(String, String, String)> = all_deps
             .iter()
             .filter(|(name, _)| !is_sdk_pseudo_package(name) && !self.local_packages.contains_key(name.as_str()))
-            .map(|(name, c)| (name.clone(), c.clone(), "root".to_string()))
+            .map(|(name, c)| {
+                discovered.insert(name.clone());
+                (name.clone(), c.clone(), "root".to_string())
+            })
             .collect();
 
         let mut wave = 0usize;
@@ -362,7 +366,10 @@ impl Resolver {
                             cache.insert(pkg_name.clone(), metadata.versions).await;
                             Ok(pkg_name)
                         }
-                        Err(_) => Err(pkg_name),
+                        Err(e) => {
+                            warn!("metadata fetch failed for {}: {}", pkg_name, e);
+                            Err(pkg_name)
+                        }
                     }
                 }));
             }
@@ -382,7 +389,6 @@ impl Resolver {
             // Pick selected versions so transitive deps come from the
             // actual chosen version.
             let mut next_chunk: Vec<(String, String, String)> = Vec::new();
-            let mut next_chunk_seen: HashSet<String> = HashSet::new();
 
             for (name, constraint, requester) in to_fetch.iter().chain(already_cached.iter()) {
                 if failed_packages.contains(name) {
@@ -406,7 +412,7 @@ impl Resolver {
                     {
                         continue;
                     }
-                    if next_chunk_seen.insert(dep_name.clone()) {
+                    if discovered.insert(dep_name.clone()) {
                         next_chunk.push((dep_name.clone(), dep_constraint.clone(), name.clone()));
                     }
                 }
@@ -418,10 +424,6 @@ impl Resolver {
             }
 
             to_fetch = next_chunk;
-            if wave > 30 {
-                warn!("Stopping incremental fetch at wave {}", wave);
-                break;
-            }
         }
         Ok(())
     }

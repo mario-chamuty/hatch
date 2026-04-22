@@ -62,6 +62,13 @@ impl PubDevRegistry {
         }
     }
 
+    fn value_to_string(value: &Value) -> Option<String> {
+        match value {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
     fn value_to_constraint(value: &Value) -> String {
         match value {
             Value::String(s) => s.clone(),
@@ -151,10 +158,10 @@ impl Registry for PubDevRegistry {
                     published: Some(version_info.published.clone()),
                     dart_sdk: pubspec.environment.as_ref()
                         .and_then(|env| env.get("sdk"))
-                        .cloned(),
+                        .and_then(Self::value_to_string),
                     flutter_sdk: pubspec.environment.as_ref()
                         .and_then(|env| env.get("flutter"))
-                        .cloned(),
+                        .and_then(Self::value_to_string),
                     archive_sha256,
                 };
                 versions.push(version);
@@ -209,10 +216,10 @@ impl Registry for PubDevRegistry {
                 published: Some(version_info.published),
                 dart_sdk: pubspec.environment.as_ref()
                     .and_then(|env| env.get("sdk"))
-                    .cloned(),
+                    .and_then(Self::value_to_string),
                 flutter_sdk: pubspec.environment.as_ref()
                     .and_then(|env| env.get("flutter"))
-                    .cloned(),
+                    .and_then(Self::value_to_string),
                 archive_sha256: version_info.archive_sha256,
             })
         } else {
@@ -256,10 +263,10 @@ impl Registry for PubDevRegistry {
                 published: None,
                 dart_sdk: package.latest.pubspec.environment.as_ref()
                     .and_then(|env| env.get("sdk"))
-                    .cloned(),
+                    .and_then(Self::value_to_string),
                 flutter_sdk: package.latest.pubspec.environment.as_ref()
                     .and_then(|env| env.get("flutter"))
-                    .cloned(),
+                    .and_then(Self::value_to_string),
                 archive_sha256: None, // Search results don't include checksums
             };
 
@@ -330,7 +337,7 @@ struct PubDevPubspec {
     repository: Option<String>,
     dependencies: Option<HashMap<String, Value>>,
     dev_dependencies: Option<HashMap<String, Value>>,
-    environment: Option<HashMap<String, String>>,
+    environment: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize)]

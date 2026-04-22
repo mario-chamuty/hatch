@@ -368,14 +368,11 @@ fn prune_directory(
                 })
                 .collect()
         } else {
-            // No lockfile at all: conservatively keep the latest 20
-            // versions. pub.dev returns oldest-first so slice from the tail.
-            let mut v = metadata.versions;
-            if v.len() > 20 {
-                let start = v.len() - 20;
-                v = v.split_off(start);
-            }
-            v
+            // No lockfile at all: keep everything. Truncating to a fixed
+            // "latest N" window is unsafe – a project in the same dir may
+            // constrain a package to an older version that would be dropped,
+            // breaking resolution on the next run.
+            metadata.versions
         };
 
         let after_count = kept.len();
