@@ -353,8 +353,25 @@ pub fn debloat_enabled() -> bool {
 pub fn extract_with_debloat(tarball_bytes: &[u8], dest: &Path) -> Result<DebloatStats> {
     std::fs::create_dir_all(dest)?;
 
+    // Decompress once, reuse across both passes. Decompression is the hot path
+    // per-package (large tarballs = hundreds of MB uncompressed across an
+    // install), so sharing a single decoded buffer halves CPU and roughly
+    // halves the per-package extraction wall time.
+    let mut decompressed: Vec<u8> = Vec::with_capacity(tarball_bytes.len() * 4);
+    let mut decoder = GzDecoder::new(Cursor::new(tarball_bytes));
+    // Bound the inflate to MAX_TOTAL_SIZE so a gzip bomb cannot blow the heap
+    // before the per-entry checks in pass1/pass2 fire.
+    let mut limited = decoder.by_ref().take(MAX_TOTAL_SIZE + 1);
+    limited.read_to_end(&mut decompressed)?;
+    if decompressed.len() as u64 > MAX_TOTAL_SIZE {
+        return Err(anyhow!(
+            "Archive cumulative decompressed size exceeds {} bytes: possible archive bomb",
+            MAX_TOTAL_SIZE
+        ));
+    }
+
     // Pass 1: buffer manifest-like files.
-    let (pubspec_src, hatch_src) = pass1_collect_manifests(tarball_bytes)?;
+    let (pubspec_src, hatch_src) = pass1_collect_manifests(&decompressed)?;
     let pubspec_hints = pubspec_src
         .as_deref()
         .map(parse_pubspec_hints)
@@ -374,7 +391,7 @@ pub fn extract_with_debloat(tarball_bytes: &[u8], dest: &Path) -> Result<Debloat
 
     // Pass 2: extract with filter.
     pass2_extract(
-        tarball_bytes,
+        &decompressed,
         dest,
         &pubspec_hints,
         &keep_patterns,
@@ -384,10 +401,9 @@ pub fn extract_with_debloat(tarball_bytes: &[u8], dest: &Path) -> Result<Debloat
 }
 
 fn pass1_collect_manifests(
-    tarball_bytes: &[u8],
+    tar_bytes: &[u8],
 ) -> Result<(Option<String>, Option<String>)> {
-    let decoder = GzDecoder::new(Cursor::new(tarball_bytes));
-    let mut archive = tar::Archive::new(decoder);
+    let mut archive = tar::Archive::new(Cursor::new(tar_bytes));
     archive.set_preserve_permissions(false);
     archive.set_preserve_mtime(false);
 
@@ -539,15 +555,14 @@ fn is_pass1_target(rel: &str) -> bool {
 }
 
 fn pass2_extract(
-    tarball_bytes: &[u8],
+    tar_bytes: &[u8],
     dest: &Path,
     pubspec: &PubspecHints,
     keep_patterns: &[Pattern],
     strip_patterns: &[Pattern],
     filter_enabled: bool,
 ) -> Result<DebloatStats> {
-    let decoder = GzDecoder::new(Cursor::new(tarball_bytes));
-    let mut archive = tar::Archive::new(decoder);
+    let mut archive = tar::Archive::new(Cursor::new(tar_bytes));
     archive.set_preserve_permissions(false);
     archive.set_preserve_mtime(false);
 

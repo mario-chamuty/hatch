@@ -78,25 +78,43 @@ impl CacheManager {
         version: &str,
         checksum: &str,
     ) -> Result<PathBuf> {
-        let download_start = std::time::Instant::now();
+        let archive_path = self
+            .download_only(registry, name, version, checksum)
+            .await?;
+        self.extract_and_cleanup(registry, name, version, archive_path).await
+    }
 
+    /// Phase 1: download the tarball. Returns the path to the downloaded
+    /// archive. Cheap to hold many of these in flight at once (network-bound).
+    pub async fn download_only(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+        checksum: &str,
+    ) -> Result<PathBuf> {
         if crate::cli::verbosity::is_debug() {
             println!("⬇️  DOWNLOADING: {}@{} from {}", name, version, registry);
         }
+        self.downloader
+            .download_with_checksum(registry, name, version, checksum)
+            .await
+    }
 
-        let archive_path = self.downloader.download_with_checksum(registry, name, version, checksum).await?;
-        let download_time = download_start.elapsed();
-
-        if crate::cli::verbosity::is_debug() {
-            println!("📦 EXTRACTING: {}@{} ({:.2}s download)", name, version, download_time.as_secs_f32());
-        }
-
-        // Move extraction to a blocking task pool to avoid blocking the async runtime
+    /// Phase 2: extract the tarball into the package cache dir and clean up
+    /// the archive. CPU- and disk-bound, should run on a bounded extraction
+    /// pool rather than the network pool.
+    pub async fn extract_and_cleanup(
+        &self,
+        registry: &str,
+        name: &str,
+        version: &str,
+        archive_path: PathBuf,
+    ) -> Result<PathBuf> {
         let registry_str = registry.to_string();
         let name_str = name.to_string();
         let version_str = version.to_string();
         let archive_path_clone = archive_path.clone();
-        let extract_start = std::time::Instant::now();
         // Stream B: synchronous cleanup (do not reorder with Stream A's debloat invocation)
         let store_result = tokio::task::spawn_blocking(move || {
             PackageStorage::store_package(&registry_str, &name_str, &version_str, &archive_path_clone)
@@ -105,8 +123,6 @@ impl CacheManager {
         let cached_path = match store_result {
             Ok(p) => p,
             Err(e) => {
-                // Extraction failed – tear down any partial package dir AND
-                // the tarball so we never leave half-written state behind.
                 if let Ok(pkg_dir) = CachePaths::package_dir(registry, name, version) {
                     if pkg_dir.exists() {
                         if let Err(rm) = tokio::fs::remove_dir_all(&pkg_dir).await {
@@ -122,18 +138,7 @@ impl CacheManager {
                 return Err(e);
             }
         };
-        let extract_time = extract_start.elapsed();
 
-        if crate::cli::verbosity::is_debug() {
-            println!("✅ COMPLETED: {}@{} ({:.2}s extract, {:.2}s total)",
-                name, version, extract_time.as_secs_f32(),
-                (download_time + extract_time).as_secs_f32());
-        }
-
-        // Stream B: synchronous cleanup on success – block until the tarball
-        // is gone (or we've logged the failure). We previously fire-and-forgot
-        // this with `tokio::spawn`, which meant a short-lived CLI could exit
-        // before the cleanup ran, leaving stale downloads on disk.
         if let Err(e) = tokio::fs::remove_file(&archive_path).await {
             warn!("Failed to clean up download file {}: {}", archive_path.display(), e);
         }

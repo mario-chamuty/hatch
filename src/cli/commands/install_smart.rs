@@ -187,13 +187,20 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
         }
 
         // Create ALL download tasks at once - true parallel downloading!
-        // Use separate semaphores: high concurrency for network IO, CPU-bound for extraction
+        // Two separate semaphores decouple the network-bound and CPU-bound
+        // phases: many downloads can stream in parallel while a bounded pool
+        // of extraction workers drains them as soon as they complete.
         let mut download_tasks = Vec::new();
         let download_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(100));
+        let extract_parallelism = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(8);
+        let extract_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(extract_parallelism));
 
         for (name, version) in packages_to_download {
             let cache_manager_clone = cache_manager.clone();
-            let sem_clone = download_semaphore.clone();
+            let dl_sem = download_semaphore.clone();
+            let ex_sem = extract_semaphore.clone();
             let batch_num = resolved_batches.get(&name).copied().unwrap_or(999);
 
             // Resolve the checksum up-front (on the main task, so any missing
@@ -207,18 +214,38 @@ pub async fn execute(profile: Option<String>) -> Result<()> {
             )?;
 
             let task = tokio::spawn(async move {
-                let _permit = sem_clone.acquire().await.unwrap();
                 let start = std::time::Instant::now();
-                let result = cache_manager_clone
-                    .get_package_parallel_with_checksum(
-                        "pub.dev",
-                        &name,
-                        &version,
-                        &checksum_arg,
-                    )
-                    .await;
-                let elapsed = start.elapsed();
-                (name, version, batch_num, result, elapsed)
+
+                // Fast path: already cached (can happen if a parallel batch
+                // populated the cache between the initial check and now).
+                if let Ok(Some(p)) = crate::cache::storage::PackageStorage::get_package_path(
+                    "pub.dev", &name, &version,
+                ) {
+                    return (name, version, batch_num, Ok(p), start.elapsed());
+                }
+
+                // Phase 1: download under the network semaphore only. Drop
+                // the permit before extraction so another download can start.
+                let archive_path = {
+                    let _permit = dl_sem.acquire().await.unwrap();
+                    match cache_manager_clone
+                        .download_only("pub.dev", &name, &version, &checksum_arg)
+                        .await
+                    {
+                        Ok(p) => p,
+                        Err(e) => return (name, version, batch_num, Err(e), start.elapsed()),
+                    }
+                };
+
+                // Phase 2: extract under the CPU semaphore. Bounded by CPU
+                // count so we do not saturate cores with blocking work.
+                let result = {
+                    let _permit = ex_sem.acquire().await.unwrap();
+                    cache_manager_clone
+                        .extract_and_cleanup("pub.dev", &name, &version, archive_path)
+                        .await
+                };
+                (name, version, batch_num, result, start.elapsed())
             });
 
             download_tasks.push(task);
