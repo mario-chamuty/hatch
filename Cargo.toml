@@ -78,6 +78,10 @@ shell-words = "1"
 petgraph = "0.6"
 rayon = "1"
 
+# iOS: App Store Connect API auth (ES256 JWT) + base64 transport
+jsonwebtoken = "9"
+base64 = "0.22"
+
 [dev-dependencies]
 tempfile = "3.8"
 assert_cmd = "2.0"

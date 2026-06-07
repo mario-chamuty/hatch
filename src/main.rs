@@ -19,6 +19,7 @@ mod scripts;
 mod branding;
 mod auth;
 mod git;
+mod ios;
 
 use cli::{Cli, Commands, verbosity, CacheCommands};
 
@@ -154,6 +155,9 @@ async fn main() -> Result<()> {
                 CacheCommands::Prune { dry_run, aggressive } => cli::commands::cache::prune(dry_run, aggressive).await,
                 CacheCommands::Verify => cli::commands::cache::verify().await,
             }
+        }
+        Commands::Ios { subcommand } => {
+            cli::commands::ios::execute(subcommand).await
         }
     }
 }
