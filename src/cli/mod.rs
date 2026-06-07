@@ -175,15 +175,19 @@ pub enum IosCommands {
     Doctor,
     /// Configure App Store Connect API credentials
     Auth {
+        /// Browser-assisted setup: open the API Keys page and auto-import the
+        /// downloaded AuthKey_*.p8 (prompts for the issuer ID).
+        #[arg(long)]
+        web: bool,
         /// Issuer ID (UUID from App Store Connect -> Integrations)
         #[arg(long)]
-        issuer: String,
+        issuer: Option<String>,
         /// Key ID (10-char key identifier)
         #[arg(long)]
-        key_id: String,
+        key_id: Option<String>,
         /// Path to the AuthKey_<KEYID>.p8 file
         #[arg(long)]
-        p8: String,
+        p8: Option<String>,
         /// Apple Developer Team ID (optional)
         #[arg(long)]
         team_id: Option<String>,

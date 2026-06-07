@@ -16,7 +16,9 @@ use crate::ios::{runner_for, Runner};
 pub async fn execute(cmd: IosCommands) -> Result<()> {
     match cmd {
         IosCommands::Doctor => doctor().await,
-        IosCommands::Auth { issuer, key_id, p8, team_id } => auth(issuer, key_id, p8, team_id).await,
+        IosCommands::Auth { web, issuer, key_id, p8, team_id } => {
+            auth(web, issuer, key_id, p8, team_id).await
+        }
         IosCommands::Setup { flutter } => setup(flutter).await,
         IosCommands::Build { bundle_id, name, sign, distribution } => {
             build(bundle_id, name, sign, distribution).await
@@ -82,11 +84,26 @@ async fn setup(flutter: Option<String>) -> Result<()> {
 
 // --- auth -----------------------------------------------------------------
 
-async fn auth(issuer: String, key_id: String, p8: String, team_id: Option<String>) -> Result<()> {
+const ASC_KEYS_URL: &str = "https://appstoreconnect.apple.com/access/integrations/api";
+
+async fn auth(
+    web: bool,
+    issuer: Option<String>,
+    key_id: Option<String>,
+    p8: Option<String>,
+    team_id: Option<String>,
+) -> Result<()> {
+    // Resolve the three credential parts, browser-assisted when requested or
+    // when they weren't all supplied on the command line.
+    let (issuer, key_id, p8) = if web || issuer.is_none() || key_id.is_none() || p8.is_none() {
+        web_assisted(issuer, key_id, p8)?
+    } else {
+        (issuer.unwrap(), key_id.unwrap(), p8.unwrap())
+    };
+
     let p8_abs = std::fs::canonicalize(&p8)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or(p8);
-    // Validate by minting a token + a trivial call.
     let mut cfg = IosConfig::load()?;
     cfg.asc = Some(AscCredentials { issuer_id: issuer, key_id, p8_path: p8_abs });
     if let Some(t) = team_id {
@@ -94,11 +111,103 @@ async fn auth(issuer: String, key_id: String, p8: String, team_id: Option<String
     }
     let client = AppStoreClient::new(cfg.asc.as_ref().unwrap())?;
     print!("🔑 Verifying credentials… ");
+    use std::io::Write;
+    std::io::stdout().flush().ok();
     let apps = client.list_apps().await.context("App Store Connect rejected the credentials")?;
     println!("ok ({} apps visible)", apps.len());
     cfg.save()?;
     println!("✅ Saved to {}", IosConfig::config_path()?.display());
     Ok(())
+}
+
+/// Browser-assisted credential capture: open Apple's API Keys page, then
+/// auto-detect the downloaded `AuthKey_<KEYID>.p8` and ask for the issuer ID.
+fn web_assisted(
+    issuer: Option<String>,
+    key_id: Option<String>,
+    p8: Option<String>,
+) -> Result<(String, String, String)> {
+    println!("🌐 Apple has no OAuth login for App Store Connect, so this is the");
+    println!("   next best thing: a one-time API key (it never expires, no 2FA).\n");
+    println!("Opening the API Keys page in your browser:\n  {ASC_KEYS_URL}");
+    open_browser(ASC_KEYS_URL);
+    println!(
+        "\nIn the browser:\n  \
+         1. Click the + (Generate API Key), give it 'App Manager' access.\n  \
+         2. Download the AuthKey_XXXXXXXXXX.p8 (you can only download it once).\n  \
+         3. Copy the Issuer ID shown above the keys table.\n"
+    );
+
+    // p8: explicit flag wins; else auto-detect the newest AuthKey_*.p8 in Downloads.
+    let (p8_path, detected_key_id) = match p8 {
+        Some(p) => (p, None),
+        None => {
+            prompt("Press Enter once the .p8 has finished downloading…")?;
+            match newest_auth_key() {
+                Some((path, kid)) => {
+                    println!("📄 Found {}", path);
+                    (path, Some(kid))
+                }
+                None => {
+                    let p = prompt("Couldn't find it in Downloads. Paste the full path to the .p8:")?;
+                    (p, None)
+                }
+            }
+        }
+    };
+
+    let key_id = match key_id.or(detected_key_id) {
+        Some(k) => k,
+        None => prompt("Key ID (10 chars):")?,
+    };
+    let issuer = match issuer {
+        Some(i) => i,
+        None => prompt("Issuer ID (UUID from the top of the page):")?,
+    };
+    Ok((issuer, key_id, p8_path))
+}
+
+/// Find the most recently modified `AuthKey_<KEYID>.p8` in the Downloads folder.
+fn newest_auth_key() -> Option<(String, String)> {
+    let dl = dirs::download_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))?;
+    let re = regex::Regex::new(r"(?i)^AuthKey_([A-Z0-9]+)\.p8$").ok()?;
+    let mut best: Option<(std::time::SystemTime, String, String)> = None;
+    for entry in std::fs::read_dir(&dl).ok()?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(c) = re.captures(&name) {
+            let kid = c.get(1).unwrap().as_str().to_string();
+            let mtime = entry.metadata().and_then(|m| m.modified()).ok()?;
+            if best.as_ref().map(|(t, _, _)| mtime > *t).unwrap_or(true) {
+                best = Some((mtime, entry.path().to_string_lossy().into_owned(), kid));
+            }
+        }
+    }
+    best.map(|(_, path, kid)| (path, kid))
+}
+
+/// Open a URL in the user's default browser (best effort, cross-platform).
+fn open_browser(url: &str) {
+    let r = if cfg!(windows) {
+        std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(url).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(url).spawn()
+    };
+    if r.is_err() {
+        println!("(could not open a browser automatically; visit the URL above)");
+    }
+}
+
+/// Print a prompt and read a trimmed line from stdin.
+fn prompt(msg: &str) -> Result<String> {
+    use std::io::{self, Write};
+    print!("{msg} ");
+    io::stdout().flush().ok();
+    let mut s = String::new();
+    io::stdin().read_line(&mut s).context("reading input")?;
+    Ok(s.trim().to_string())
 }
 
 // --- build ----------------------------------------------------------------
