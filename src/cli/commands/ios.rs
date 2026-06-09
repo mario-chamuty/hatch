@@ -274,7 +274,8 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
         project_dir: to_build_path(&project.to_string_lossy()),
         app_name: app_name.clone(),
         bundle_id: bundle.clone(),
-        min_os: "13.0".to_string(),
+        // 13.4 is the floor for LC_DYLD_CHAINED_FIXUPS (emitted by ld64.lld).
+        min_os: "13.4".to_string(),
         short_version: short_version.clone(),
         build_number: build_number.clone(),
     };

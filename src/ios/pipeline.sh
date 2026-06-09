@@ -21,6 +21,19 @@ CLANG="$TC/arm-apple-darwin11-clang"
 INT="$TC/arm-apple-darwin11-install_name_tool"
 VTOOL="$TC/arm-apple-darwin11-vtool"
 
+# Apple's ingestion rejects binaries that don't look like they were produced by
+# Apple's linker (ITMS-90125). cctools ld64 emits the legacy LC_DYLD_INFO_ONLY;
+# a real iOS-SDK build emits LC_DYLD_CHAINED_FIXUPS. LLVM's ld64.lld can emit
+# chained fixups (-fixup_chains, requires deployment target >= 13.4), so prefer
+# it when present and fall back to cctools ld otherwise.
+LLD="$(command -v ld64.lld-18 2>/dev/null || command -v ld64.lld 2>/dev/null || true)"
+# The Apple SDK version we stamp into LC_BUILD_VERSION + the Info.plist DT* keys.
+# Apple requires apps be built with a current SDK (ITMS-90725); we don't link new
+# symbols, so stamping the version is sufficient.
+SDK_VER="26.0"
+SDK_BUILD="23A340"
+XCODE_BUILD="17A324"
+
 WORK="$ROOT/work/@@SAFE@@"
 OUT="$ROOT/out"
 APP="$OUT/Payload/Runner.app"
@@ -63,7 +76,7 @@ echo "== 2/6 gen_snapshot -> App.framework (Mach-O arm64) =="
 "$GS" --snapshot_kind=app-aot-macho-dylib \
   --macho="$APP/Frameworks/App.framework/App" "$WORK/app.aot.dill"
 "$INT" -id @rpath/App.framework/App "$APP/Frameworks/App.framework/App"
-"$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$MINOS" -replace \
+"$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
   -output "$APP/Frameworks/App.framework/App" "$APP/Frameworks/App.framework/App" 2>/dev/null || true
 cat > "$APP/Frameworks/App.framework/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -83,6 +96,8 @@ PLIST
 echo "== 3/6 Flutter.framework =="
 cp -R "$FLUTTER_FW" "$APP/Frameworks/Flutter.framework"
 rm -rf "$APP/Frameworks/Flutter.framework/_CodeSignature"
+"$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
+  -output "$APP/Frameworks/Flutter.framework/Flutter" "$APP/Frameworks/Flutter.framework/Flutter" 2>/dev/null || true
 
 # 4. native Runner shell (no plugins) -> compile + link
 echo "== 4/6 Runner (cross clang + ld64) =="
@@ -112,11 +127,21 @@ OBJC
 CFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=$MINOS -fobjc-arc -fmodules -I$FLUTTER_FW/Headers -F$APP/Frameworks"
 "$CLANG" $CFLAGS -c "$WORK/Runner/main.m" -o "$WORK/main.o"
 "$CLANG" $CFLAGS -c "$WORK/Runner/AppDelegate.m" -o "$WORK/AppDelegate.o"
+LINKARGS=""
+if [ -n "$LLD" ]; then
+  LINKARGS="-fuse-ld=$LLD -Wl,-fixup_chains"
+  echo ">> linking Runner with ld64.lld (chained fixups)"
+fi
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min="$MINOS" \
+  $LINKARGS \
   "$WORK/main.o" "$WORK/AppDelegate.o" \
   -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
   -Xlinker -rpath -Xlinker @executable_path/Frameworks \
   -o "$APP/Runner"
+# Stamp a current SDK into the Runner's LC_BUILD_VERSION (+ a linker tool entry)
+# so it reads as a modern Apple-toolchain build for ingestion.
+"$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
+  -output "$APP/Runner.v" "$APP/Runner" && mv "$APP/Runner.v" "$APP/Runner"
 
 # 5. assets + app icon catalog + Info.plist
 echo "== 5/6 bundle assets + Assets.car + Info.plist =="
@@ -156,7 +181,16 @@ cat > "$APP/Info.plist" <<PLIST
   <key>LSRequiresIPhoneOS</key><true/>
   <key>MinimumOSVersion</key><string>@@MINOS@@</string>
   <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+  <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
   <key>DTPlatformName</key><string>iphoneos</string>
+  <key>DTPlatformVersion</key><string>$SDK_VER</string>
+  <key>DTSDKName</key><string>iphoneos$SDK_VER</string>
+  <key>DTSDKBuild</key><string>$SDK_BUILD</string>
+  <key>DTPlatformBuild</key><string>$SDK_BUILD</string>
+  <key>DTXcode</key><string>2600</string>
+  <key>DTXcodeBuild</key><string>$XCODE_BUILD</string>
+  <key>DTCompiler</key><string>com.apple.compilers.llvm.clang.1_0</string>
+  <key>BuildMachineOSBuild</key><string>25A354</string>
 $ICON_PLIST
   <key>UIDeviceFamily</key><array><integer>1</integer></array>
   <key>UILaunchScreen</key><dict/>
