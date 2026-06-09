@@ -219,6 +219,12 @@ pub enum IosCommands {
         #[arg(long)]
         ipa: Option<String>,
     },
+    /// Validate a signed .ipa for App Store upload (no upload, no credentials)
+    Validate {
+        /// Path to the .ipa (defaults to the latest signed build in the project)
+        #[arg(long)]
+        ipa: Option<String>,
+    },
     /// List apps registered in App Store Connect
     Apps,
     /// List registered test devices

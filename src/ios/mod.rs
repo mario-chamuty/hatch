@@ -13,6 +13,7 @@ pub mod runner;
 pub mod signing;
 pub mod toolchain;
 pub mod upload;
+pub mod validate;
 
 pub use config::IosConfig;
 pub use runner::Runner;

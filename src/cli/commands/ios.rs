@@ -24,6 +24,7 @@ pub async fn execute(cmd: IosCommands) -> Result<()> {
             build(bundle_id, name, sign, distribution).await
         }
         IosCommands::Publish { ipa } => publish(ipa).await,
+        IosCommands::Validate { ipa } => validate_cmd(ipa),
         IosCommands::Apps => apps().await,
         IosCommands::Devices => devices().await,
         IosCommands::DeviceAdd { name, udid } => device_add(name, udid).await,
@@ -317,11 +318,9 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
 
 // --- publish (TestFlight upload) ------------------------------------------
 
-async fn publish(ipa: Option<String>) -> Result<()> {
-    let cfg = IosConfig::load()?;
-    let creds = cfg.require_asc()?.clone();
-
-    // Resolve the .ipa on the host: explicit flag, else newest in build/ios/hatch.
+/// Resolve the `.ipa` on the host: explicit `--ipa`, else newest in
+/// `build/ios/hatch`.
+fn resolve_ipa(ipa: Option<String>) -> Result<std::path::PathBuf> {
     let ipa_path = match ipa {
         Some(p) => std::path::PathBuf::from(p),
         None => {
@@ -340,6 +339,21 @@ async fn publish(ipa: Option<String>) -> Result<()> {
     if !ipa_path.exists() {
         anyhow::bail!("ipa not found: {}", ipa_path.display());
     }
+    Ok(ipa_path)
+}
+
+/// `hatch ios validate` - run the upload pre-flight checks only (no credentials,
+/// no network, no upload). Handy in CI and for debugging signing.
+fn validate_cmd(ipa: Option<String>) -> Result<()> {
+    let ipa_path = resolve_ipa(ipa)?;
+    crate::ios::validate::preflight(&ipa_path)
+}
+
+async fn publish(ipa: Option<String>) -> Result<()> {
+    let cfg = IosConfig::load()?;
+    let creds = cfg.require_asc()?.clone();
+
+    let ipa_path = resolve_ipa(ipa)?;
 
     // Pre-flight: the target app must already exist in App Store Connect. Apple
     // has no API to create an app record, and uploading to a non-existent app is
@@ -359,6 +373,11 @@ async fn publish(ipa: Option<String>) -> Result<()> {
             Err(e) => eprintln!("⚠️  could not verify the app exists ({e}); continuing"),
         }
     }
+
+    // Pre-flight: validate the signed binary, profile and metadata locally so
+    // we never burn an upload round-trip on something Apple will reject (e.g.
+    // ITMS-90034). Fails fast with an actionable message.
+    crate::ios::validate::preflight(&ipa_path)?;
 
     // Native API-key upload over Apple's iris content-delivery API. No Mac, no
     // app-specific password, no iTMSTransporter.
