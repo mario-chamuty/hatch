@@ -23,6 +23,10 @@ pub struct BuildRequest {
     pub app_name: String,
     pub bundle_id: String,
     pub min_os: String,
+    /// `CFBundleShortVersionString` (marketing version, e.g. `1.0.0`).
+    pub short_version: String,
+    /// `CFBundleVersion` (build number, numeric, e.g. `18`).
+    pub build_number: String,
 }
 
 pub struct BuildOutput {
@@ -60,6 +64,8 @@ pub fn build(runner: &Runner, tc: &Toolchain, req: &BuildRequest) -> Result<Buil
         .replace("@@APPNAME@@", &req.app_name)
         .replace("@@BUNDLEID@@", &req.bundle_id)
         .replace("@@MINOS@@", &req.min_os)
+        .replace("@@SHORTVER@@", &req.short_version)
+        .replace("@@BUILDVER@@", &req.build_number)
         .replace("@@SAFE@@", &safe);
 
     let out = runner.exec(&script).context("iOS build pipeline")?;

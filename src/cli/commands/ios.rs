@@ -269,13 +269,16 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
     tc.ensure_engine(&hash)?;
 
     // 4. build
+    let (short_version, build_number) = read_pubspec_version(&project);
     let req = BuildRequest {
         project_dir: to_build_path(&project.to_string_lossy()),
         app_name: app_name.clone(),
         bundle_id: bundle.clone(),
         min_os: "13.0".to_string(),
+        short_version: short_version.clone(),
+        build_number: build_number.clone(),
     };
-    println!("🔨 Building iOS app '{app_name}' ({bundle})…");
+    println!("🔨 Building iOS app '{app_name}' ({bundle}) v{short_version} ({build_number})…");
     let out = builder::build(&runner, &tc, &req)?;
 
     // 5. optional signing
@@ -658,6 +661,30 @@ fn read_pubspec_name(project: &Path) -> Option<String> {
     let text = std::fs::read_to_string(project.join("pubspec.yaml")).ok()?;
     let val: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
     val.get("name")?.as_str().map(|s| s.to_string())
+}
+
+/// Parse the pubspec `version: X.Y.Z+B` into the iOS pair
+/// `(CFBundleShortVersionString, CFBundleVersion)` = `("X.Y.Z", "B")`.
+/// Defaults to `("1.0", "1")` when the field is absent, and to build `"1"`
+/// when there's no `+B` suffix. The build number is digits-only (Apple
+/// requires a numeric CFBundleVersion).
+fn read_pubspec_version(project: &Path) -> (String, String) {
+    let fallback = || ("1.0".to_string(), "1".to_string());
+    let Ok(text) = std::fs::read_to_string(project.join("pubspec.yaml")) else {
+        return fallback();
+    };
+    let raw = serde_yaml::from_str::<serde_yaml::Value>(&text)
+        .ok()
+        .and_then(|v| v.get("version").and_then(|s| s.as_str()).map(|s| s.to_string()));
+    let Some(raw) = raw else { return fallback() };
+    let (short, build) = match raw.split_once('+') {
+        Some((s, b)) => (s.trim().to_string(), b.trim().to_string()),
+        None => (raw.trim().to_string(), "1".to_string()),
+    };
+    let build: String = build.chars().filter(|c| c.is_ascii_digit()).collect();
+    let short = if short.is_empty() { "1.0".to_string() } else { short };
+    let build = if build.is_empty() { "1".to_string() } else { build };
+    (short, build)
 }
 
 /// Read the pinned Flutter version from fvm config in the project.

@@ -151,8 +151,8 @@ cat > "$APP/Info.plist" <<PLIST
   <key>CFBundleName</key><string>@@APPNAME@@</string>
   <key>CFBundleDisplayName</key><string>@@APPNAME@@</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>@@SHORTVER@@</string>
+  <key>CFBundleVersion</key><string>@@BUILDVER@@</string>
   <key>LSRequiresIPhoneOS</key><true/>
   <key>MinimumOSVersion</key><string>@@MINOS@@</string>
   <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
