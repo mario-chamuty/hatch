@@ -249,6 +249,9 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
     println!("📦 Ensuring dependencies are installed…");
     ensure_dependencies(&project).await?;
 
+    // 1b. asset bundle (real flutter_assets via fvm flutter / flutter)
+    generate_assets(&project);
+
     // 2. metadata
     let app_name = name
         .or_else(|| read_pubspec_name(&project))
@@ -560,6 +563,38 @@ async fn ensure_dependencies(project: &Path) -> Result<()> {
         return Err(anyhow!("`{cmd} pub get` failed"));
     }
     Ok(())
+}
+
+/// Build the Flutter asset bundle (`build/flutter_assets`) so the pipeline ships
+/// real assets/fonts. Runs via `fvm flutter` when the project pins an FVM
+/// version, else plain `flutter`. Non-fatal: the pipeline falls back to minimal
+/// manifests if this can't run (e.g. Flutter not on PATH).
+fn generate_assets(project: &Path) {
+    use crate::fvm::detector::FvmDetector;
+    let use_fvm =
+        FvmDetector::is_fvm_installed() && FvmDetector::has_project_fvm_config(&project.to_path_buf());
+    let (cmd, args): (&str, Vec<&str>) = if use_fvm {
+        ("fvm", vec!["flutter", "build", "bundle"])
+    } else {
+        ("flutter", vec!["build", "bundle"])
+    };
+    println!(
+        "🎨 Building Flutter asset bundle ({})…",
+        if use_fvm { "fvm flutter" } else { "flutter" }
+    );
+    match std::process::Command::new(cmd)
+        .args(&args)
+        .current_dir(project)
+        .status()
+    {
+        Ok(s) if s.success() => {}
+        Ok(_) => eprintln!(
+            "⚠️  `{cmd} build bundle` failed; continuing with minimal asset manifests"
+        ),
+        Err(e) => eprintln!(
+            "⚠️  could not run `{cmd} build bundle` ({e}); continuing with minimal asset manifests"
+        ),
+    }
 }
 
 fn read_pubspec_name(project: &Path) -> Option<String> {

@@ -159,11 +159,14 @@ rm -rf ios-release && mkdir ios-release && (cd ios-release && unzip -oq ../ios-r
 echo "fetching flutter platform dill ..."
 curl -fsSL -o fps.zip "$BASE/flutter_patched_sdk_product.zip"
 rm -rf flutter_patched_sdk_product && unzip -oq fps.zip
-if [ ! -d dart-sdk ]; then
-  echo "fetching Dart SDK (linux-x64) ..."
-  curl -fsSL -o dart-sdk.zip "$BASE/dart-sdk-linux-x64.zip"
-  unzip -oq dart-sdk.zip
-fi
+# Always refresh the Dart SDK alongside gen_snapshot: the two must come from the
+# SAME engine hash or their kernel binary formats disagree (gen_snapshot rejects
+# the frontend's .dill with "Invalid kernel binary format version"). A stale
+# dart-sdk left over from a previous hash is exactly that mismatch.
+echo "fetching Dart SDK (linux-x64) ..."
+rm -rf dart-sdk
+curl -fsSL -o dart-sdk.zip "$BASE/dart-sdk-linux-x64.zip"
+unzip -oq dart-sdk.zip
 echo "$H" > "$stamp"
 echo "engine $H ready"
 "#,
