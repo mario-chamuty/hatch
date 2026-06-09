@@ -112,15 +112,18 @@ class Bom:
 # ---------------------------------------------------------------------------
 
 def fourcc(s: str) -> int:
-    # tags are stored as host-order uint32; .car uses little-endian ('CTAR')
-    return struct.unpack("<I", s.encode("ascii"))[0]
+    # CAR tags are the C multi-char constant (big-endian char order) stored as
+    # a host little-endian uint32 -> the bytes appear reversed in the file
+    # (e.g. 'CTAR' -> "RATC", 'CTSI' -> "ISTC", 'ARGB' -> "BGRA"), exactly as
+    # actool writes them.
+    return struct.unpack(">I", s.encode("ascii"))[0]
 
 def carheader(rendition_count: int) -> bytes:
     return struct.pack(
         "<IIIII128s256s16sIIII",
         fourcc("CTAR"),
-        498,                 # coreuiVersion
-        15,                  # storageVersion
+        374,                 # coreuiVersion (matches actool reference)
+        11,                  # storageVersion
         0,                   # storageTimestamp
         rendition_count,
         b"@(#)PROGRESS:73",  # mainVersionString
@@ -153,10 +156,17 @@ A_STATE = 10
 A_DIRECTION = 4
 A_SIZE = 3
 
-# Order actool typically emits for app icons (subset used as the key layout)
-KEY_TOKENS = [A_ELEMENT, A_PART, A_SIZE, A_DIRECTION, A_VALUE,
-              A_DIMENSION1, A_DIMENSION2, A_STATE, A_SCALE,
-              A_IDIOM, A_SUBTYPE, A_IDENTIFIER]
+# Exact 13-token KEYFORMAT order observed in actool output (RenditionAttributeType
+# ids): Scale, Idiom, Subtype, GraphicsFeatureSetClass, MemoryLevelClass,
+# HorizontalSizeClass, VerticalSizeClass, Identifier, Element, Part, State,
+# Value, Dimension1.
+A_HSIZECLASS = 20
+A_VSIZECLASS = 21
+A_MEMCLASS = 22
+A_GFXCLASS = 23
+KEY_TOKENS = [A_SCALE, A_IDIOM, A_SUBTYPE, A_GFXCLASS, A_MEMCLASS,
+              A_HSIZECLASS, A_VSIZECLASS, A_IDENTIFIER, A_ELEMENT,
+              A_PART, A_STATE, A_VALUE, A_DIMENSION1]
 
 def keyformat() -> bytes:
     head = struct.pack("<III", fourcc("kfmt"), 0, len(KEY_TOKENS))
@@ -203,7 +213,6 @@ def build_car(renditions) -> bytes:
     """renditions: list of dicts {width,height,scale,idiom,subtype,bgra}."""
     bom = Bom()
     bom.add_var("CARHEADER", bom.add_block(carheader(len(renditions))))
-    bom.add_var("EXTENDED_METADATA", bom.add_block(extended_metadata()))
     bom.add_var("KEYFORMAT", bom.add_block(keyformat()))
 
     # FACETKEYS: one facet "AppIcon" -> identifier
@@ -226,10 +235,6 @@ def build_car(renditions) -> bytes:
                 + celm_uncompressed(r["bgra"])
         rend_pairs.append((key, value))
     bom.add_tree("RENDITIONS", rend_pairs)
-
-    # Empty trees actool always emits
-    bom.add_tree("APPEARANCEKEYS", [])
-    bom.add_tree("BITMAPKEYS", [])
 
     return bom.serialize()
 
