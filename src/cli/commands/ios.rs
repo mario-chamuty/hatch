@@ -292,7 +292,7 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
         )?;
         let pw = mat.p12_password.as_deref().unwrap_or("");
         let signed = format!("{}/out/{}-signed.ipa", tc.root, sanitize(&app_name));
-        println!("✍️  Signing with zsign…");
+        println!("✍️  Signing with rcodesign…");
         signing::sign_ipa(&runner, &tc.root, &out.ipa_path, p12, pw, profile, &signed)?;
         signed
     } else {

@@ -51,6 +51,9 @@ impl<'a> Toolchain<'a> {
     pub fn zsign(&self) -> String {
         format!("{}/zsign/bin/zsign", self.root)
     }
+    pub fn rcodesign(&self) -> String {
+        format!("{}/rcodesign/rcodesign", self.root)
+    }
 
     /// Resolve the iOS SDK path (first iPhoneOS*.sdk under iossdk/).
     pub fn ios_sdk(&self) -> Result<String> {
@@ -78,7 +81,7 @@ impl<'a> Toolchain<'a> {
             ("Flutter.framework (arm64)", self.flutter_framework()),
             ("cross clang", clang),
             ("ld64 linker", ld),
-            ("zsign", self.zsign()),
+            ("rcodesign (App Store signer)", self.rcodesign()),
         ];
         let mut checks = Vec::new();
 

@@ -85,7 +85,19 @@ echo "{path}"
     runner.exec(&script).context("installing profile")?.require()
 }
 
-/// Sign an `.ipa` in place (or to `out`) with zsign using the given p12 + profile.
+/// Sign an `.ipa` to `out` with `rcodesign` (the `apple-codesign` project) using
+/// the given p12 + provisioning profile.
+///
+/// rcodesign faithfully reimplements Apple's `codesign` and produces signatures
+/// the App Store / notarization accept Mac-free - unlike zsign, whose
+/// sideloading-grade signatures Apple's ingestion rejects with ITMS-90034 even
+/// when every structural check passes (see the `zsign-execseg-itms90034` notes).
+///
+/// Flow: unpack the IPA, embed the profile, derive the entitlements XML from the
+/// profile, sign the `.app` bundle (rcodesign recursively signs nested
+/// frameworks and auto-includes the Apple WWDR + Root CAs in the CMS chain),
+/// then repackage. The signing certificate, team ID and exec-segment flags are
+/// all set correctly by rcodesign from the leaf in the p12.
 pub fn sign_ipa(
     runner: &Runner,
     root: &str,
@@ -95,19 +107,32 @@ pub fn sign_ipa(
     profile_path: &str,
     out_path: &str,
 ) -> Result<()> {
-    let zsign = format!("{root}/zsign/bin/zsign");
+    let rcodesign = format!("{root}/rcodesign/rcodesign");
+    // Pass ONLY the p12 (leaf + key). rcodesign auto-registers the Apple CAs and
+    // sets the team ID from the leaf; passing the chain via --pem-file makes it
+    // mis-select the WWDR intermediate as the signing cert.
     let script = format!(
         r#"
-"{zsign}" -k "{p12}" -p "{pw}" -m "{prof}" -o "{out}" "{ipa}"
+set -e
+WORK=$(mktemp -d)
+cd "$WORK"
+unzip -oq "{ipa}"
+APP=$(ls -d Payload/*.app | head -1)
+cp "{prof}" "$APP/embedded.mobileprovision"
+openssl smime -inform DER -verify -noverify -in "$APP/embedded.mobileprovision" 2>/dev/null > prof.plist
+python3 -c "import plistlib,sys;plistlib.dump(plistlib.load(open('prof.plist','rb'))['Entitlements'],open('ent.plist','wb'))"
+"{rcodesign}" sign --p12-file "{p12}" --p12-password "{pw}" --entitlements-xml-file ent.plist "$APP"
+rm -f "{out}"
+( cd "$WORK" && zip -qX -r "{out}" Payload )
 "#,
-        zsign = zsign,
+        rcodesign = rcodesign,
         p12 = p12_path,
         pw = p12_password,
         prof = profile_path,
         out = out_path,
         ipa = ipa_path,
     );
-    runner.exec(&script).context("zsign signing")?.require()?;
+    runner.exec(&script).context("rcodesign signing")?.require()?;
     Ok(())
 }
 
