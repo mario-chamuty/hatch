@@ -113,10 +113,35 @@ async fn auth(
     print!("🔑 Verifying credentials… ");
     use std::io::Write;
     std::io::stdout().flush().ok();
-    let apps = client.list_apps().await.context("App Store Connect rejected the credentials")?;
-    println!("ok ({} apps visible)", apps.len());
-    cfg.save()?;
-    println!("✅ Saved to {}", IosConfig::config_path()?.display());
+    match client.verify().await {
+        Ok(crate::ios::appstore::Access::Ok(n)) => {
+            println!("ok ({n} apps visible)");
+            cfg.save()?;
+            println!("✅ Saved to {}", IosConfig::config_path()?.display());
+        }
+        Ok(crate::ios::appstore::Access::Forbidden(detail)) => {
+            // The key itself is valid (authenticated) – save it – but the
+            // account has a business-level block we should explain.
+            cfg.save()?;
+            println!("key valid, but access is blocked");
+            println!("✅ Saved to {}", IosConfig::config_path()?.display());
+            println!("\n⚠️  Apple returned 403: {detail}");
+            if detail.to_lowercase().contains("agreement") {
+                println!("\nThis is NOT a credential problem – a legal agreement needs signing.");
+                println!("The Account Holder must accept the pending agreement:");
+                println!("  • Apple Developer Program License Agreement:");
+                println!("      https://developer.apple.com/account  → review/accept the banner");
+                println!("  • Paid Applications Agreement (needed for App Store / sales APIs):");
+                println!("      App Store Connect → Business → Agreements");
+                println!("\nCertificate/profile/device commands may still work now; try:");
+                println!("  hatch ios certs");
+            } else {
+                println!("\nGive the API key more access (App Manager or Admin) in");
+                println!("App Store Connect → Users and Access → Integrations.");
+            }
+        }
+        Err(e) => return Err(e.context("App Store Connect rejected the credentials")),
+    }
     Ok(())
 }
 

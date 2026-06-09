@@ -83,30 +83,49 @@ impl AppStoreClient {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            // Apple returns a structured errors array; surface it readably.
-            let detail = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| {
-                    v.get("errors").and_then(|e| e.as_array()).map(|errs| {
-                        errs.iter()
-                            .map(|er| {
-                                format!(
-                                    "{}: {}",
-                                    er.get("title").and_then(Value::as_str).unwrap_or("error"),
-                                    er.get("detail").and_then(Value::as_str).unwrap_or("")
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("; ")
-                    })
-                })
-                .unwrap_or(text);
-            return Err(anyhow!("{ctx} -> HTTP {}: {}", status.as_u16(), detail));
+            return Err(anyhow!(
+                "{ctx} -> HTTP {}: {}",
+                status.as_u16(),
+                apple_error_detail(&text)
+            ));
         }
         if text.is_empty() {
             return Ok(Value::Null);
         }
         serde_json::from_str(&text).with_context(|| format!("{ctx}: invalid JSON response"))
+    }
+
+    /// Validate the credentials without hard-failing on business-level blocks.
+    /// A 401 means the key/issuer/.p8 are wrong; a 403 means the key is valid
+    /// but the account is missing a role or a signed agreement.
+    pub async fn verify(&self) -> Result<Access> {
+        let url = format!("{API_BASE}/v1/apps?limit=1");
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .context("contacting App Store Connect")?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let n = v["meta"]["paging"]["total"]
+                .as_u64()
+                .map(|t| t as usize)
+                .or_else(|| v["data"].as_array().map(|a| a.len()))
+                .unwrap_or(0);
+            return Ok(Access::Ok(n));
+        }
+        if status.as_u16() == 403 {
+            return Ok(Access::Forbidden(apple_error_detail(&text)));
+        }
+        Err(anyhow!(
+            "HTTP {}: {} (check the issuer ID, key ID and .p8 match the same key)",
+            status.as_u16(),
+            apple_error_detail(&text)
+        ))
     }
 
     // --- Apps / bundle IDs ------------------------------------------------
@@ -315,6 +334,36 @@ impl AppStoreClient {
             content: p["attributes"]["profileContent"].as_str().map(|s| s.to_string()),
         }
     }
+}
+
+/// Result of a credential check.
+pub enum Access {
+    /// Authenticated and authorized; `usize` is the visible app count.
+    Ok(usize),
+    /// Authenticated but blocked (missing role or unsigned agreement). The
+    /// string is Apple's human-readable reason.
+    Forbidden(String),
+}
+
+/// Flatten Apple's structured `errors` array into a readable one-liner.
+fn apple_error_detail(text: &str) -> String {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| {
+            v.get("errors").and_then(|e| e.as_array()).map(|errs| {
+                errs.iter()
+                    .map(|er| {
+                        format!(
+                            "{}: {}",
+                            er.get("title").and_then(Value::as_str).unwrap_or("error"),
+                            er.get("detail").and_then(Value::as_str).unwrap_or("")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+        })
+        .unwrap_or_else(|| text.to_string())
 }
 
 #[derive(Debug, Clone)]
