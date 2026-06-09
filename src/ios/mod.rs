@@ -9,10 +9,10 @@
 pub mod appstore;
 pub mod builder;
 pub mod config;
-pub mod publish;
 pub mod runner;
 pub mod signing;
 pub mod toolchain;
+pub mod upload;
 
 pub use config::IosConfig;
 pub use runner::Runner;

@@ -8,7 +8,6 @@ use crate::cli::IosCommands;
 use crate::ios::appstore::AppStoreClient;
 use crate::ios::builder::{self, BuildRequest};
 use crate::ios::config::{AscCredentials, IosConfig};
-use crate::ios::publish as publisher;
 use crate::ios::runner::to_build_path;
 use crate::ios::signing;
 use crate::ios::toolchain::Toolchain;
@@ -321,7 +320,26 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
 async fn publish(ipa: Option<String>) -> Result<()> {
     let cfg = IosConfig::load()?;
     let creds = cfg.require_asc()?.clone();
-    let runner = runner_for(&cfg);
+
+    // Resolve the .ipa on the host: explicit flag, else newest in build/ios/hatch.
+    let ipa_path = match ipa {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let dir = std::env::current_dir()?.join("build").join("ios").join("hatch");
+            std::fs::read_dir(&dir)
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|e| e == "ipa").unwrap_or(false))
+                .max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok())
+                .context("no .ipa found in build/ios/hatch. Build one first: hatch ios build --sign")?
+        }
+    };
+    if !ipa_path.exists() {
+        anyhow::bail!("ipa not found: {}", ipa_path.display());
+    }
 
     // Pre-flight: the target app must already exist in App Store Connect. Apple
     // has no API to create an app record, and uploading to a non-existent app is
@@ -342,29 +360,9 @@ async fn publish(ipa: Option<String>) -> Result<()> {
         }
     }
 
-    // Resolve the .ipa: explicit flag, else newest in build/ios/hatch.
-    let ipa_build = match ipa {
-        Some(p) => to_build_path(&p),
-        None => {
-            let dir = std::env::current_dir()?.join("build").join("ios").join("hatch");
-            let newest = std::fs::read_dir(&dir)
-                .ok()
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().map(|e| e == "ipa").unwrap_or(false))
-                .max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok());
-            let p = newest.context(
-                "no .ipa found in build/ios/hatch. Build one first: hatch ios build --sign",
-            )?;
-            to_build_path(&p.to_string_lossy())
-        }
-    };
-    println!("📤 Uploading {ipa_build} to TestFlight…");
-
-    let itms = publisher::ensure_installed(&runner, &cfg.toolchain_root, cfg.itms_transporter.as_deref())?;
-    publisher::upload(&runner, &cfg.toolchain_root, &itms, &ipa_build, &creds)?;
+    // Native API-key upload over Apple's iris content-delivery API. No Mac, no
+    // app-specific password, no iTMSTransporter.
+    crate::ios::upload::upload(&creds, &ipa_path).await?;
     println!("\n✅ Uploaded. The build will appear in App Store Connect → TestFlight after processing.");
     Ok(())
 }

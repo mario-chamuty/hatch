@@ -23,6 +23,27 @@ struct Claims {
     aud: String,
 }
 
+/// Mint a short-lived ES256 bearer token from the API key. Shared by the REST
+/// client and the iris content-delivery uploader (`super::upload`).
+pub fn mint_token(creds: &AscCredentials) -> Result<String> {
+    let pem = std::fs::read(&creds.p8_path)
+        .with_context(|| format!("reading API key file {}", creds.p8_path))?;
+    let key = EncodingKey::from_ec_pem(&pem)
+        .context("invalid .p8 key (expected a PKCS#8 EC private key from App Store Connect)")?;
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        iss: creds.issuer_id.clone(),
+        iat: now,
+        exp: now + 19 * 60, // Apple requires <= 20 minutes
+        aud: AUDIENCE.to_string(),
+    };
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(creds.key_id.clone());
+    header.typ = Some("JWT".to_string());
+    encode(&header, &claims, &key).context("signing App Store Connect JWT")
+}
+
 pub struct AppStoreClient {
     http: reqwest::Client,
     token: String,
@@ -31,26 +52,9 @@ pub struct AppStoreClient {
 impl AppStoreClient {
     /// Build a client and mint a short-lived bearer token.
     pub fn new(creds: &AscCredentials) -> Result<Self> {
-        let pem = std::fs::read(&creds.p8_path)
-            .with_context(|| format!("reading API key file {}", creds.p8_path))?;
-        let key = EncodingKey::from_ec_pem(&pem)
-            .context("invalid .p8 key (expected a PKCS#8 EC private key from App Store Connect)")?;
-
-        let now = chrono::Utc::now().timestamp();
-        let claims = Claims {
-            iss: creds.issuer_id.clone(),
-            iat: now,
-            exp: now + 19 * 60, // Apple requires <= 20 minutes
-            aud: AUDIENCE.to_string(),
-        };
-        let mut header = Header::new(Algorithm::ES256);
-        header.kid = Some(creds.key_id.clone());
-        header.typ = Some("JWT".to_string());
-        let token = encode(&header, &claims, &key).context("signing App Store Connect JWT")?;
-
         Ok(Self {
             http: reqwest::Client::new(),
-            token,
+            token: mint_token(creds)?,
         })
     }
 
