@@ -8,6 +8,7 @@ use crate::cli::IosCommands;
 use crate::ios::appstore::AppStoreClient;
 use crate::ios::builder::{self, BuildRequest};
 use crate::ios::config::{AscCredentials, IosConfig};
+use crate::ios::publish as publisher;
 use crate::ios::runner::to_build_path;
 use crate::ios::signing;
 use crate::ios::toolchain::Toolchain;
@@ -23,6 +24,7 @@ pub async fn execute(cmd: IosCommands) -> Result<()> {
         IosCommands::Build { bundle_id, name, sign, distribution } => {
             build(bundle_id, name, sign, distribution).await
         }
+        IosCommands::Publish { ipa } => publish(ipa).await,
         IosCommands::Apps => apps().await,
         IosCommands::Devices => devices().await,
         IosCommands::DeviceAdd { name, udid } => device_add(name, udid).await,
@@ -307,6 +309,52 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
     if !sign {
         println!("   Sign later with: hatch ios build --sign  (after cert-create + profile-create)");
     }
+    Ok(())
+}
+
+// --- publish (TestFlight upload) ------------------------------------------
+
+async fn publish(ipa: Option<String>) -> Result<()> {
+    let cfg = IosConfig::load()?;
+    let creds = cfg.require_asc()?.clone();
+    let runner = runner_for(&cfg);
+
+    // Resolve the .ipa: explicit flag, else newest in build/ios/hatch.
+    let ipa_build = match ipa {
+        Some(p) => to_build_path(&p),
+        None => {
+            let dir = std::env::current_dir()?.join("build").join("ios").join("hatch");
+            let newest = std::fs::read_dir(&dir)
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|e| e == "ipa").unwrap_or(false))
+                .max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok());
+            let p = newest.context(
+                "no .ipa found in build/ios/hatch. Build one first: hatch ios build --sign",
+            )?;
+            to_build_path(&p.to_string_lossy())
+        }
+    };
+    println!("📤 Uploading {ipa_build} to TestFlight…");
+
+    let itms = publisher::locate(&runner, &cfg.toolchain_root, cfg.itms_transporter.as_deref());
+    let itms = match itms {
+        Some(t) => t,
+        None => {
+            println!("❌ iTMSTransporter not found in the build environment.");
+            println!("\niTMSTransporter is Apple's Java uploader (runs on Linux). Install it, then:");
+            println!("  hatch ios auth ...                     # already done");
+            println!("  set its path in ~/.hatch/ios.json -> \"itms_transporter\": \"/path/to/iTMSTransporter\"");
+            println!("\nIt ships with Apple 'Transporter' or can be extracted from the");
+            println!("Transporter app; it needs a JRE on PATH inside the build environment.");
+            return Ok(());
+        }
+    };
+    publisher::upload(&runner, &cfg.toolchain_root, &itms, &ipa_build, &creds)?;
+    println!("\n✅ Uploaded. The build will appear in App Store Connect → TestFlight after processing.");
     Ok(())
 }
 

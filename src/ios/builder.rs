@@ -12,6 +12,7 @@
 //! with a programmatic launch screen + minimal flutter_assets.
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 
 use super::runner::Runner;
 use super::toolchain::Toolchain;
@@ -30,9 +31,21 @@ pub struct BuildOutput {
 }
 
 const PIPELINE: &str = include_str!("pipeline.sh");
+const MKCAR: &str = include_str!("tools/mkcar.py");
 
 pub fn build(runner: &Runner, tc: &Toolchain, req: &BuildRequest) -> Result<BuildOutput> {
     let sdk = tc.ios_sdk()?;
+
+    // Ship the native Assets.car writer into the build environment.
+    let setup = format!(
+        "mkdir -p \"{root}/tools\"\nprintf '%s' '{b64}' | base64 -d > \"{root}/tools/mkcar.py\"\n",
+        root = tc.root,
+        b64 = STANDARD.encode(MKCAR),
+    );
+    runner
+        .exec(&setup)
+        .context("installing mkcar.py")?
+        .require()?;
     let safe: String = req
         .app_name
         .chars()

@@ -118,8 +118,8 @@ CFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=$MINOS -fobjc-arc -fmo
   -Xlinker -rpath -Xlinker @executable_path/Frameworks \
   -o "$APP/Runner"
 
-# 5. assets + Info.plist
-echo "== 5/6 bundle assets + Info.plist =="
+# 5. assets + app icon catalog + Info.plist
+echo "== 5/6 bundle assets + Assets.car + Info.plist =="
 if [ -d "$PROJ/build/flutter_assets" ]; then
   cp -R "$PROJ/build/flutter_assets/." "$APP/flutter_assets/"
   rm -f "$APP/flutter_assets/kernel_blob.bin"
@@ -128,6 +128,19 @@ else
   printf '[]' > "$APP/flutter_assets/FontManifest.json"
 fi
 cp "$FLUTTER_FW/icudtl.dat" "$APP/flutter_assets/" 2>/dev/null || true
+
+# App icon asset catalog (Assets.car) generated natively by mkcar.py - no Mac.
+ICON_PLIST=""
+ICONSET="$PROJ/ios/Runner/Assets.xcassets/AppIcon.appiconset"
+if [ -d "$ICONSET" ] && command -v python3 >/dev/null 2>&1; then
+  if python3 "$ROOT/tools/mkcar.py" build "$ICONSET" "$APP/Assets.car" 2>/tmp/mkcar.err; then
+    echo ">> Assets.car generated from AppIcon.appiconset (native, no actool)"
+    ICON_PLIST="  <key>CFBundleIconName</key><string>AppIcon</string>"
+  else
+    echo ">> WARN: Assets.car generation failed: $(cat /tmp/mkcar.err)" >&2
+  fi
+fi
+
 cat > "$APP/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -142,7 +155,10 @@ cat > "$APP/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>1</string>
   <key>LSRequiresIPhoneOS</key><true/>
   <key>MinimumOSVersion</key><string>@@MINOS@@</string>
-  <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+  <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+  <key>DTPlatformName</key><string>iphoneos</string>
+$ICON_PLIST
+  <key>UIDeviceFamily</key><array><integer>1</integer></array>
   <key>UILaunchScreen</key><dict/>
   <key>UISupportedInterfaceOrientations</key>
   <array><string>UIInterfaceOrientationPortrait</string></array>

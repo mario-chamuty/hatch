@@ -9,6 +9,7 @@
 pub mod appstore;
 pub mod builder;
 pub mod config;
+pub mod publish;
 pub mod runner;
 pub mod signing;
 pub mod toolchain;

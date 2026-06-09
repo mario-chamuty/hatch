@@ -52,6 +52,10 @@ pub struct IosConfig {
     /// Default bundle identifier for builds/profiles.
     #[serde(default)]
     pub bundle_id: Option<String>,
+
+    /// Path (in the build environment) to iTMSTransporter for `publish`.
+    #[serde(default)]
+    pub itms_transporter: Option<String>,
 }
 
 fn default_toolchain_root() -> String {
@@ -67,6 +71,7 @@ impl Default for IosConfig {
             toolchain_root: default_toolchain_root(),
             team_id: None,
             bundle_id: None,
+            itms_transporter: None,
         }
     }
 }

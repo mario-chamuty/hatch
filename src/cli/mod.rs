@@ -213,6 +213,12 @@ pub enum IosCommands {
         #[arg(long)]
         distribution: bool,
     },
+    /// Upload a signed .ipa to TestFlight / App Store Connect
+    Publish {
+        /// Path to the .ipa (defaults to the latest signed build in the project)
+        #[arg(long)]
+        ipa: Option<String>,
+    },
     /// List apps registered in App Store Connect
     Apps,
     /// List registered test devices
