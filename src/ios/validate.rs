@@ -170,7 +170,10 @@ pub fn preflight(path: &Path) -> Result<()> {
     let exec_name = sget("CFBundleExecutable").context("Info.plist missing CFBundleExecutable")?;
     for k in ["CFBundleVersion", "CFBundleShortVersionString", "MinimumOSVersion"] {
         if idict.get(k).is_none() {
-            fatals.push(format!("Info.plist is missing required key `{k}`"));
+            fatals.push(format!(
+                "the app's Info.plist is missing the required key `{k}`.\n      \
+                 → Rebuild the app: `hatch ios build --sign --distribution`."
+            ));
         }
     }
     if idict.get("CFBundleSupportedPlatforms").is_none() {
@@ -193,24 +196,30 @@ pub fn preflight(path: &Path) -> Result<()> {
             if let Some(pd) = pd {
                 if pd.get("ProvisionedDevices").is_some() {
                     fatals.push(
-                        "embedded profile is an Ad Hoc / Development profile (it lists \
-                         ProvisionedDevices). App Store uploads need a distribution profile \
-                         with no devices - create one with `hatch ios profile-create --distribution`."
+                        "the embedded provisioning profile is an Ad Hoc / Development profile \
+                         (it lists ProvisionedDevices); the App Store needs a distribution \
+                         profile with no devices.\n      \
+                         → Create one: `hatch ios profile-create --distribution`, then rebuild: \
+                         `hatch ios build --sign --distribution`."
                             .into(),
                     );
                 }
                 if pd.get("ProvisionsAllDevices").and_then(|v| v.as_boolean()) == Some(true) {
                     fatals.push(
-                        "embedded profile is an Enterprise (in-house) profile, which the App \
-                         Store will not accept."
+                        "the embedded profile is an Enterprise (in-house) profile, which the App \
+                         Store will not accept.\n      \
+                         → Use an App Store distribution profile: `hatch ios profile-create \
+                         --distribution`, then rebuild: `hatch ios build --sign --distribution`."
                             .into(),
                     );
                 }
                 if let Some(ent) = pd.get("Entitlements").and_then(|v| v.as_dictionary()) {
                     if ent.get("get-task-allow").and_then(|v| v.as_boolean()) == Some(true) {
                         fatals.push(
-                            "profile entitlements set get-task-allow=true (a development build). \
-                             App Store distribution requires get-task-allow=false."
+                            "the profile entitlements set get-task-allow=true (a development \
+                             build); App Store distribution requires get-task-allow=false.\n      \
+                             → Rebuild with a distribution profile: `hatch ios build --sign \
+                             --distribution`."
                                 .into(),
                         );
                     }
@@ -235,8 +244,11 @@ pub fn preflight(path: &Path) -> Result<()> {
             };
             if !matches {
                 fatals.push(format!(
-                    "bundle id `{bundle_id}` does not match the provisioning profile's \
-                     app id `{pat}`. Re-sign with a profile for `{bundle_id}`."
+                    "bundle id `{bundle_id}` does not match the provisioning profile's app id \
+                     `{pat}`.\n      \
+                     → Create a profile for this bundle id and rebuild: `hatch ios \
+                     profile-create --bundle-id {bundle_id} --distribution`, then `hatch ios \
+                     build --sign --distribution`."
                 ));
             }
         }
@@ -263,13 +275,19 @@ pub fn preflight(path: &Path) -> Result<()> {
         let Some(sig) = parse_macho(&data) else { continue };
         let is_main = name == &main_exec_path;
         if !sig.signed {
-            fatals.push(format!("Mach-O `{name}` is not code-signed"));
+            fatals.push(format!(
+                "`{name}` is not code-signed.\n      \
+                 → Re-sign the app: run `hatch ios build --sign --distribution`."
+            ));
             continue;
         }
         if is_main {
             checked_main = true;
             if sig.cds.is_empty() {
-                fatals.push(format!("main executable `{name}` has no CodeDirectory"));
+                fatals.push(format!(
+                    "the main executable `{name}` has no code signature.\n      \
+                     → Re-sign the app: run `hatch ios build --sign --distribution`."
+                ));
             }
             // Aggregate the exec-seg flags across the (SHA1 + SHA256) directories
             // so we report each problem once rather than per-CodeDirectory.
@@ -283,17 +301,22 @@ pub fn preflight(path: &Path) -> Result<()> {
             }
             if with_flags.iter().any(|f| f & CS_EXECSEG_ALLOW_UNSIGNED != 0) {
                 fatals.push(
-                    "main executable carries CS_EXECSEG_ALLOW_UNSIGNED (a debug flag); Apple \
-                     will reject this with ITMS-90034. Your zsign is the buggy build that stamps \
-                     ALLOW_UNSIGNED on every binary - rebuild zsign with the get-task-allow value \
-                     fix and re-sign."
+                    "this .ipa is signed for development, not App Store: its main executable \
+                     carries the CS_EXECSEG_ALLOW_UNSIGNED debug flag, which Apple rejects as \
+                     ITMS-90034.\n      \
+                     → Re-sign it: run `hatch ios build --sign --distribution`, then \
+                     `hatch ios publish` again.\n      \
+                     (If a freshly built .ipa still fails here, the zsign toolchain is the buggy \
+                     build that always stamps ALLOW_UNSIGNED - rebuild zsign with the \
+                     get-task-allow value fix.)"
                         .into(),
                 );
             }
             if !with_flags.is_empty() && with_flags.iter().any(|f| f & CS_EXECSEG_MAIN_BINARY == 0) {
                 fatals.push(
-                    "main executable is missing CS_EXECSEG_MAIN_BINARY on its executable \
-                     segment; Apple requires this on the main binary."
+                    "the main executable is missing CS_EXECSEG_MAIN_BINARY on its executable \
+                     segment, which Apple requires on the main binary.\n      \
+                     → Re-sign it: run `hatch ios build --sign --distribution`."
                         .into(),
                 );
             }
@@ -317,7 +340,8 @@ pub fn preflight(path: &Path) -> Result<()> {
             println!("   ❌ {f}");
         }
         Err(anyhow!(
-            "pre-flight validation failed with {} blocking problem(s); not uploading.",
+            "pre-flight validation found {} blocking problem(s); not uploading. \
+             Fix the item(s) above (each lists the command to run) and try again.",
             fatals.len()
         ))
     }
