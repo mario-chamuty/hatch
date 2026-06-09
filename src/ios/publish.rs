@@ -7,6 +7,53 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use super::config::AscCredentials;
 use super::runner::Runner;
 
+/// Apple's official command-line Transporter installer for Linux (a ~140 MB
+/// self-extracting Makeself archive that bundles its own JRE). The payload is
+/// fully relocatable, so we extract just the `itms/` tree into the toolchain
+/// root rather than running the sudo `/usr/local/itms` installer.
+const TRANSPORTER_URL: &str = "https://itunesconnect.apple.com/WebObjects/iTunesConnect.woa/ra/resources/download/public/Transporter__Linux/bin";
+
+/// Locate iTMSTransporter, downloading + installing it into the toolchain root
+/// if it isn't present yet. Returns its path inside the build environment.
+pub fn ensure_installed(runner: &Runner, root: &str, configured: Option<&str>) -> Result<String> {
+    if let Some(found) = locate(runner, root, configured) {
+        return Ok(found);
+    }
+    println!("⬇️  iTMSTransporter not found - installing Apple's Linux uploader (~140 MB)…");
+    // The Makeself wrapper uses a bashism, so it must run under bash (not dash).
+    // Its post-extract cleanup re-execs with `exec -e` and prints a harmless
+    // error; we ignore the installer's exit status and validate by running the
+    // extracted binary instead.
+    let script = format!(
+        r#"
+T="{root}/transporter"
+ITMS="$T/itms/bin/iTMSTransporter"
+mkdir -p "$T"
+cd "$T"
+curl -fL --retry 2 -o installer.sh "{url}"
+rm -rf _payload
+bash installer.sh --accept --noexec --keep --target "$T/_payload" >/dev/null 2>&1 || true
+if [ ! -d "$T/_payload/itms" ]; then
+  echo "transporter payload missing after extraction" >&2; exit 1
+fi
+rm -rf "$T/itms"
+mv "$T/_payload/itms" "$T/itms"
+rm -rf "$T/_payload" installer.sh
+chmod +x "$ITMS"
+"$ITMS" -version >/dev/null 2>&1 || {{ echo "installed iTMSTransporter failed to run" >&2; exit 1; }}
+echo "$ITMS"
+"#,
+        root = root,
+        url = TRANSPORTER_URL,
+    );
+    let out = runner.exec(&script).context("installing iTMSTransporter")?;
+    if !out.ok() {
+        anyhow::bail!("iTMSTransporter install failed:\n{}", out.stderr.trim());
+    }
+    locate(runner, root, configured)
+        .context("iTMSTransporter still not found after install")
+}
+
 /// Locate iTMSTransporter inside the build environment.
 pub fn locate(runner: &Runner, root: &str, configured: Option<&str>) -> Option<String> {
     let candidates = [
@@ -39,26 +86,37 @@ pub fn upload(
     ipa_build_path: &str,
     creds: &AscCredentials,
 ) -> Result<()> {
-    // Place the .p8 where iTMSTransporter expects API keys.
+    // iTMSTransporter searches a fixed set of directories for AuthKey_<KEYID>.p8
+    // (it does NOT honor API_PRIVATE_KEYS_DIR reliably). Install the key into the
+    // canonical `~/.appstoreconnect/private_keys` and a local `./private_keys`,
+    // and run from a working dir that contains the latter, covering every path
+    // the tool probes.
     let p8 = std::fs::read(&creds.p8_path)
         .with_context(|| format!("reading {}", creds.p8_path))?;
-    let key_dir = format!("{root}/private_keys");
+    let work = format!("{root}/upload");
+    let b64 = STANDARD.encode(&p8);
     let install_key = format!(
-        "mkdir -p \"{dir}\"\nprintf '%s' '{b64}' | base64 -d > \"{dir}/AuthKey_{kid}.p8\"\n",
-        dir = key_dir,
-        b64 = STANDARD.encode(&p8),
+        r#"
+mkdir -p "$HOME/.appstoreconnect/private_keys" "{work}/private_keys"
+printf '%s' '{b64}' | base64 -d > "$HOME/.appstoreconnect/private_keys/AuthKey_{kid}.p8"
+cp "$HOME/.appstoreconnect/private_keys/AuthKey_{kid}.p8" "{work}/private_keys/AuthKey_{kid}.p8"
+chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_{kid}.p8" "{work}/private_keys/AuthKey_{kid}.p8"
+"#,
+        work = work,
+        b64 = b64,
         kid = creds.key_id,
     );
     runner.exec(&install_key).context("installing API key")?.require()?;
 
     let script = format!(
         r#"
-export API_PRIVATE_KEYS_DIR="{key_dir}"
+cd "{work}"
+export API_PRIVATE_KEYS_DIR="{work}/private_keys"
 "{itms}" -m upload -assetFile "{ipa}" \
   -apiKey "{kid}" -apiIssuer "{iss}" \
   -WONoPause true -v informational
 "#,
-        key_dir = key_dir,
+        work = work,
         itms = itms,
         ipa = ipa_build_path,
         kid = creds.key_id,

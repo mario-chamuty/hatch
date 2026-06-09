@@ -323,6 +323,25 @@ async fn publish(ipa: Option<String>) -> Result<()> {
     let creds = cfg.require_asc()?.clone();
     let runner = runner_for(&cfg);
 
+    // Pre-flight: the target app must already exist in App Store Connect. Apple
+    // has no API to create an app record, and uploading to a non-existent app is
+    // rejected late and cryptically, so check up front and guide the user.
+    if let Some(bid) = std::env::current_dir().ok().and_then(|p| read_ios_bundle_id(&p)) {
+        match AppStoreClient::new(&creds) {
+            Ok(client) => match client.list_apps().await {
+                Ok(apps) if !apps.iter().any(|a| a.bundle_id == bid) => anyhow::bail!(
+                    "no app with bundle id `{bid}` exists in App Store Connect.\n\
+                     Apple's API cannot create app records - create it once in the web UI:\n  \
+                     App Store Connect -> Apps -> (+) -> New App -> pick bundle id `{bid}`,\n  \
+                     set a name + SKU, then re-run `hatch ios publish`."
+                ),
+                Ok(_) => {}
+                Err(e) => eprintln!("⚠️  could not verify the app exists ({e}); continuing"),
+            },
+            Err(e) => eprintln!("⚠️  could not verify the app exists ({e}); continuing"),
+        }
+    }
+
     // Resolve the .ipa: explicit flag, else newest in build/ios/hatch.
     let ipa_build = match ipa {
         Some(p) => to_build_path(&p),
@@ -344,19 +363,7 @@ async fn publish(ipa: Option<String>) -> Result<()> {
     };
     println!("📤 Uploading {ipa_build} to TestFlight…");
 
-    let itms = publisher::locate(&runner, &cfg.toolchain_root, cfg.itms_transporter.as_deref());
-    let itms = match itms {
-        Some(t) => t,
-        None => {
-            println!("❌ iTMSTransporter not found in the build environment.");
-            println!("\niTMSTransporter is Apple's Java uploader (runs on Linux). Install it, then:");
-            println!("  hatch ios auth ...                     # already done");
-            println!("  set its path in ~/.hatch/ios.json -> \"itms_transporter\": \"/path/to/iTMSTransporter\"");
-            println!("\nIt ships with Apple 'Transporter' or can be extracted from the");
-            println!("Transporter app; it needs a JRE on PATH inside the build environment.");
-            return Ok(());
-        }
-    };
+    let itms = publisher::ensure_installed(&runner, &cfg.toolchain_root, cfg.itms_transporter.as_deref())?;
     publisher::upload(&runner, &cfg.toolchain_root, &itms, &ipa_build, &creds)?;
     println!("\n✅ Uploaded. The build will appear in App Store Connect → TestFlight after processing.");
     Ok(())
