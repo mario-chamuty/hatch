@@ -257,6 +257,7 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
         .or_else(|| read_pubspec_name(&project))
         .unwrap_or_else(|| "App".to_string());
     let bundle = bundle_id
+        .or_else(|| read_ios_bundle_id(&project))
         .or_else(|| cfg.bundle_id.clone())
         .unwrap_or_else(|| format!("com.example.{}", sanitize(&app_name)));
 
@@ -595,6 +596,38 @@ fn generate_assets(project: &Path) {
             "⚠️  could not run `{cmd} build bundle` ({e}); continuing with minimal asset manifests"
         ),
     }
+}
+
+/// Read the app's real bundle identifier from the iOS Xcode project
+/// (`ios/Runner.xcodeproj/project.pbxproj`). Picks the most common
+/// `PRODUCT_BUNDLE_IDENTIFIER`, ignoring test/extension targets
+/// (`.RunnerTests`) and unresolved `$(...)` variable references. This is the
+/// project's own truth, so it beats the global config default.
+fn read_ios_bundle_id(project: &Path) -> Option<String> {
+    let pbx = project
+        .join("ios")
+        .join("Runner.xcodeproj")
+        .join("project.pbxproj");
+    let text = std::fs::read_to_string(&pbx).ok()?;
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("PRODUCT_BUNDLE_IDENTIFIER") else {
+            continue;
+        };
+        let val = rest
+            .trim_start_matches(|c: char| c == ' ' || c == '=')
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        if val.is_empty() || val.contains("$(") || val.ends_with(".RunnerTests") {
+            continue;
+        }
+        *counts.entry(val).or_insert(0) += 1;
+    }
+    counts.into_iter().max_by_key(|(_, c)| *c).map(|(k, _)| k)
 }
 
 fn read_pubspec_name(project: &Path) -> Option<String> {
