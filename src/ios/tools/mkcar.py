@@ -60,10 +60,23 @@ class Bom:
             vidx = self.add_block(value)
             kidx = self.add_block(key)
             indices.append((vidx, kidx))
+        self._emit_tree(name, indices)
+
+    def add_inline_tree(self, name: str, pairs):
+        """A tree whose leaf key is an inline uint32 rather than a key block
+        (CoreUI uses this for BITMAPKEYS: entry = (valueBlockIdx, identifier))."""
+        pairs = sorted(pairs, key=lambda kv: kv[0])
+        indices = []
+        for ident, value in pairs:
+            vidx = self.add_block(value)
+            indices.append((vidx, ident))   # second slot is the literal id, not a block
+        self._emit_tree(name, indices)
+
+    def _emit_tree(self, name: str, indices):
         # BOMPaths leaf (big-endian): isLeaf(u16) count(u16) forward(u32) backward(u32)
         paths = struct.pack(">HHII", 1, len(indices), 0, 0)
-        for vidx, kidx in indices:
-            paths += struct.pack(">II", vidx, kidx)
+        for vidx, second in indices:
+            paths += struct.pack(">II", vidx, second)
         paths_idx = self.add_block(paths)
         # BOMTree: 'tree' version child blockSize pathCount unknown
         tree = b"tree" + struct.pack(">IIIIB", 1, paths_idx, 4096, len(indices), 0)
@@ -139,6 +152,12 @@ APPEARANCE_KEYS = [
     (b"UIAppearanceDark", 0x01),
     (b"UIAppearanceLight", 0x04),
 ]
+
+# BITMAPKEYS: per-identifier 56-byte bitmap descriptor, keyed by the inline
+# rendition identifier. Verbatim from a genuine catalog for the AppIcon id.
+BITMAPKEYS_DESCRIPTOR = bytes.fromhex(
+    "01000000000000002c0000000a000000ffffffff010000000e000000"
+    "0600000001000100ff03000001000000ffffffffffffffffffffffff")
 
 # RenditionAttributeType ids (Car.h)
 A_ELEMENT, A_PART, A_SIZE, A_DIRECTION, A_VALUE = 1, 2, 3, 4, 6
@@ -397,6 +416,7 @@ def build_car(bgra_1024: bytes, width=1024, height=1024) -> bytes:
     bom.add_tree("APPEARANCEKEYS",
                  [(name, struct.pack("<H", v)) for name, v in APPEARANCE_KEYS])
     bom.add_var("EXTENDED_METADATA", bom.add_block(extended_metadata()))
+    bom.add_inline_tree("BITMAPKEYS", [(APPICON_IDENTIFIER, BITMAPKEYS_DESCRIPTOR)])
     bom.add_tree("RENDITIONS", rend_pairs)
     return bom.serialize()
 
