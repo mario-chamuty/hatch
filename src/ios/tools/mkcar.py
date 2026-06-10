@@ -375,10 +375,13 @@ def build_car(bgra_1024: bytes, width=1024, height=1024) -> bytes:
                                   A_PART: APPICON_PART_META})
         rend_pairs.append((meta_key, meta_hdr + tvl_meta + msis))
 
-        # 1024 image rendition (layout 0x0C)
+        # 1024 image rendition (layout 0x0C). The pixel-format tag is the
+        # LOGICAL "ARGB" (Apple premultiplied) but, like every CAR tag, is
+        # byte-reversed in-file to "BGRA" (matching genuine actool output and
+        # what CoreUI accepts). The bitmap bytes are B,G,R,A order accordingly.
         img_hdr = csiheader(width, height, 100, "Icon.png", 0x0C,
                             len(tvl_img), len(mlec),
-                            pixel_format="BGRA", color_space=1)
+                            pixel_format="ARGB", color_space=1)
         img_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom,
                                  A_DIMENSION2: DIM2_1024,
                                  A_IDENTIFIER: APPICON_IDENTIFIER,
