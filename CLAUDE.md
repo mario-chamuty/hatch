@@ -2,6 +2,21 @@
 
 This document describes the development workflow, file organization, and usage instructions for the Hatch project.
 
+## CORE CONSTRAINT: NO macOS — EVER
+
+The entire reason hatch exists is to build, sign, and ship iOS apps (including
+App Store / TestFlight) **without ever touching a Mac**. This is non-negotiable.
+
+- NEVER propose, offer, or design any solution that uses macOS, a Mac, a cloud
+  Mac, a macOS CI runner, Xcode, `actool`, Apple's `ld`, or any other Apple
+  tool that only runs on macOS. Not even "just once" or "just for one artifact".
+- When Apple's ingestion requires something Apple's tools normally produce (e.g.
+  an actool `Assets.car`, an Apple-`ld`-linked binary), the answer is to
+  replicate it natively on Linux/Windows (reverse-engineer the format, use
+  open-source tooling, etc.) — NOT to fall back to a Mac.
+- "It needs a Mac" is never an acceptable conclusion. Keep finding the Mac-free
+  way.
+
 ## File Structure & Purpose
 
 ### Core Documentation Files

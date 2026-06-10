@@ -4,21 +4,36 @@ mkcar.py - write a compiled Asset Catalog (Assets.car) for app icons on
 Linux/Windows, with no Apple tools (no actool / CoreUI).
 
 The .car is a big-endian BOM (Bill of Materials) container holding named
-blocks (CARHEADER, KEYFORMAT) and B-trees (FACETKEYS, RENDITIONS). Layout +
-exact field values reverse-engineered and validated byte-for-byte against
-genuine actool output (acextract test fixtures):
+blocks (CARHEADER, KEYFORMAT) and B-trees (FACETKEYS, RENDITIONS). The exact
+field values, key ordering and rendition encoding below were reverse-engineered
+byte-for-byte from genuine actool output (UTM-Remote.app/Assets.car, CoreUI-374)
+and cross-checked against:
   - bomutils (BOM container)            https://github.com/hogliux/bomutils
   - Timac/CARParser Car.h (CAR structs) https://github.com/Timac/CARParser
 
+Modern App Store ingestion parses each rendition with CoreUI, so the image
+payload must match actool's real format: a CTSI (csiheader) + a TLV info list
++ an MLEC (CELM) payload whose pixels are LZFSE-compressed and wrapped in
+row-chunked "KCBC" blocks. An uncompressed CELM or a hand-guessed BOM key
+scheme is rejected with ITMS-90596 ("asset catalog can't be processed").
+
+A modern "single size" app icon is one 1024x1024 source; the store generates
+the 120/180/... derivatives server-side. We emit, per idiom (iphone, ipad):
+  - an AppIcon multi-size descriptor rendition (layout 0x3F2, an "SISM" table)
+  - the 1024x1024 "Icon.png" image rendition (layout 0x0C, LZFSE)
+plus a single "AppIcon" facet that resolves CFBundleIconName -> the renditions.
+
 Usage:
-  mkcar.py selftest [out.car]                 # synthetic self-test
-  mkcar.py build <AppIcon.appiconset> <out.car>   # from a Flutter/Xcode iconset
+  mkcar.py selftest [out.car]                      # synthetic self-test
+  mkcar.py build <AppIcon.appiconset> <out.car>    # from a Flutter/Xcode iconset
 """
 
 import json
 import os
 import struct
+import subprocess
 import sys
+import tempfile
 import zlib
 
 # ---------------------------------------------------------------------------
@@ -38,6 +53,8 @@ class Bom:
         self.vars.append((name, block_index))
 
     def add_tree(self, name: str, pairs):
+        # CoreUI walks the tree as a sorted B-tree; keep keys in memcmp order.
+        pairs = sorted(pairs, key=lambda kv: kv[0])
         indices = []
         for key, value in pairs:
             vidx = self.add_block(value)
@@ -80,7 +97,8 @@ class Bom:
 
 
 # ---------------------------------------------------------------------------
-# CAR structures (Car.h). CAR tags are byte-reversed in-file ('CTAR'->"RATC").
+# CAR structures (Car.h). CAR tags are byte-reversed in-file ('CTSI'->"ISTC").
+# fourcc() reads big-endian; packing with "<I" writes the reversed bytes.
 # ---------------------------------------------------------------------------
 
 def fourcc(s: str) -> int:
@@ -88,10 +106,8 @@ def fourcc(s: str) -> int:
 
 def carheader(rendition_count: int) -> bytes:
     # Field values mirror genuine actool/CoreUI output (CoreUI-374). The tail
-    # schemaVersion / colorSpaceID / keySemantics MUST be non-zero (2,1,2) or
-    # CoreUI refuses the catalog on ingestion ("can't be processed", ITMS-90596).
-    # The version strings and a non-zero UUID likewise match actool so the
-    # catalog reads as a real Image Catalog Tool product.
+    # schemaVersion / colorSpaceID / keySemantics MUST be (2,1,2); the version
+    # strings and a non-zero UUID make the catalog read as a real product.
     uuid = bytes.fromhex("61bb82b8fe5e455c8de300619725e604")
     return struct.pack(
         "<IIIII128s256s16sIIII",
@@ -100,50 +116,133 @@ def carheader(rendition_count: int) -> bytes:
         b"CoreThemeDefinition-247:IBCocoaTouchImageCatalogTool-7.3",
         uuid, 0, 2, 1, 2)
 
-# RenditionAttributeType ids
+# RenditionAttributeType ids (Car.h)
 A_ELEMENT, A_PART, A_SIZE, A_DIRECTION, A_VALUE = 1, 2, 3, 4, 6
-A_DIMENSION1, A_DIMENSION2, A_STATE, A_SCALE = 8, 9, 10, 12
-A_IDIOM, A_SUBTYPE, A_IDENTIFIER = 15, 16, 17
-A_HSIZECLASS, A_VSIZECLASS, A_MEMCLASS, A_GFXCLASS = 20, 21, 22, 23
+A_APPEARANCE, A_DIMENSION1, A_DIMENSION2, A_STATE = 7, 8, 9, 10
+A_SCALE, A_UNKNOWN13, A_IDIOM, A_SUBTYPE, A_IDENTIFIER = 12, 13, 15, 16, 17
 
-# actool's exact 13-token KEYFORMAT order (validated against reference)
-KEY_TOKENS = [A_SCALE, A_IDIOM, A_SUBTYPE, A_GFXCLASS, A_MEMCLASS,
-              A_HSIZECLASS, A_VSIZECLASS, A_IDENTIFIER, A_ELEMENT,
-              A_PART, A_STATE, A_VALUE, A_DIMENSION1]
+# actool's exact 10-token KEYFORMAT order (validated against reference CAR).
+KEY_TOKENS = [A_APPEARANCE, A_UNKNOWN13, A_SCALE, A_IDIOM, A_SUBTYPE,
+              A_DIMENSION2, A_DIMENSION1, A_IDENTIFIER, A_ELEMENT, A_PART]
 
-# Asset-catalog idiom string -> CoreUI idiom value (validated: phone=1, universal=0)
+# Asset-catalog idiom string -> CoreUI idiom value
 IDIOM = {"universal": 0, "iphone": 1, "ipad": 2, "tv": 3, "watch": 4,
          "car": 5, "mac": 6, "ios-marketing": 0}
+
+# Identity triple actool assigns to the "AppIcon" facet (any consistent values
+# work; we reuse the reference's so the catalog matches real output exactly).
+APPICON_ELEMENT = 85
+APPICON_PART_IMAGE = 220   # the image renditions (Icon.png)
+APPICON_PART_META = 218    # the multi-size descriptor rendition (0x3F2)
+APPICON_IDENTIFIER = 6849
+DIM2_1024 = 9              # dimension2 slot index for the 1024 marketing size
 
 def keyformat() -> bytes:
     return struct.pack("<III", fourcc("kfmt"), 0, len(KEY_TOKENS)) + \
         b"".join(struct.pack("<I", t) for t in KEY_TOKENS)
 
-def rendition_key(attrs: dict) -> bytes:
+def rendition_key(attrs) -> bytes:
     return b"".join(struct.pack("<H", attrs.get(t, 0)) for t in KEY_TOKENS)
 
-def facet_value(identifier: int) -> bytes:
-    attrs = [(A_IDENTIFIER, identifier)]
+def facet_value(element, part, identifier) -> bytes:
+    attrs = [(A_ELEMENT, element), (A_PART, part), (A_IDENTIFIER, identifier)]
     out = struct.pack("<HHH", 0, 0, len(attrs))
     for name, value in attrs:
         out += struct.pack("<HH", name, value)
     return out
 
-def csiheader(width, height, scale_factor, name, payload_len, pixel_format="ARGB"):
-    flags = 0x8  # isOpaque (icons have no alpha)
-    csimetadata = struct.pack("<IHH128s", 0, 0x3F2, 0, name.encode("ascii")[:128])
-    csibitmaplist = struct.pack("<IIII", 0, 0, 0, payload_len)
-    # colorSpaceID 1 = sRGB (actool stamps 1 here; 0 reads as an unknown space).
+def csiheader(width, height, scale_factor, name, layout, tvl_len,
+              payload_len, pixel_format=0, color_space=1, flags=0) -> bytes:
+    # csimetadata: modtime(0) layout(u16) zero(u16) name[128]
+    csimetadata = struct.pack("<IHH128s", 0, layout, 0,
+                              name.encode("ascii")[:128])
+    # csibitmaplist: tvlLength, unknown(=1), zero, renditionLength
+    csibitmaplist = struct.pack("<IIII", tvl_len, 1, 0, payload_len)
+    pf = fourcc(pixel_format) if isinstance(pixel_format, str) else pixel_format
     return (struct.pack("<IIIIIII", fourcc("CTSI"), 1, flags, width, height,
-                        scale_factor, fourcc(pixel_format))
-            + struct.pack("<I", 1) + csimetadata + csibitmaplist)
-
-def celm_uncompressed(bgra: bytes) -> bytes:
-    return struct.pack("<IIII", fourcc("CELM"), 1, 0, len(bgra)) + bgra
+                        scale_factor, pf)
+            + struct.pack("<I", color_space)          # colorSpaceID:4 (1 = sRGB)
+            + csimetadata + csibitmaplist)
 
 
 # ---------------------------------------------------------------------------
-# Minimal PNG decoder -> premultiplied BGRA (8-bit truecolor / truecolor-alpha)
+# TLV info lists (verbatim from actool, with row-stride patched per image)
+# ---------------------------------------------------------------------------
+
+def _tlv(tag, value):
+    return struct.pack("<II", tag, len(value)) + value
+
+def image_tvl(width) -> bytes:
+    """104-byte TLV info list preceding a layout-0x0C image rendition."""
+    return (
+        _tlv(0x3E9, bytes.fromhex("0100000000000000000000000004000000040000")) +
+        _tlv(0x3EB, bytes.fromhex("01000000000000000000000000000000000000000004000000040000")) +
+        _tlv(0x3EC, bytes.fromhex("000000000000803f")) +
+        _tlv(0x3EE, struct.pack("<I", 1)) +
+        _tlv(0x3EF, struct.pack("<I", width * 4))   # bytes per row
+    )
+
+def meta_tvl() -> bytes:
+    """28-byte TLV info list preceding the 0x3F2 multi-size descriptor."""
+    return (
+        _tlv(0x3EC, bytes.fromhex("0000000000000000")) +
+        _tlv(0x3EE, struct.pack("<I", 1))
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rendition payloads
+# ---------------------------------------------------------------------------
+
+def lzfse_compress(data: bytes) -> bytes:
+    with tempfile.NamedTemporaryFile(delete=False) as ti:
+        ti.write(data); src = ti.name
+    dst = src + ".lz"
+    try:
+        subprocess.run(["lzfse", "-encode", "-i", src, "-o", dst],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return open(dst, "rb").read()
+    finally:
+        for f in (src, dst):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+def mlec_lzfse(bgra: bytes, width: int, height: int) -> bytes:
+    """MLEC (CELM) payload: row-chunked, LZFSE-compressed KCBC blocks.
+
+    actool caps each chunk at ~1.4 MB of uncompressed pixels, so for a 1024px
+    image that is 341 rows/chunk (341*1024*4 = 1396736). Each chunk is an
+    independent LZFSE stream wrapped as: 'KCBC' u32(0) u32(0) u32(rows) u32(len).
+    """
+    bytes_per_row = width * 4
+    rows_per_chunk = max(1, 1396736 // bytes_per_row)
+    blocks = b""
+    nchunks = 0
+    row = 0
+    while row < height:
+        n = min(rows_per_chunk, height - row)
+        chunk = bgra[row * bytes_per_row:(row + n) * bytes_per_row]
+        comp = lzfse_compress(chunk)
+        blocks += b"KCBC" + struct.pack("<IIII", 0, 0, n, len(comp)) + comp
+        row += n
+        nchunks += 1
+    # MLEC header: tag, version(3), compressionType(4 = LZFSE), chunkCount
+    return struct.pack("<IIII", fourcc("CELM"), 3, 4, nchunks) + blocks
+
+def msis_payload(sizes) -> bytes:
+    """0x3F2 multi-size descriptor: 'SISM' u32(ver=1) u32(count) [w,h,dim2]*.
+    Like other CAR tags it is byte-reversed in-file, so the logical fourcc is
+    'MSIS' (which fourcc()+'<I' writes as the bytes 'SISM')."""
+    out = struct.pack("<III", fourcc("MSIS"), 1, len(sizes))
+    for w, h, dim2 in sizes:
+        out += struct.pack("<III", w, h, dim2)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Minimal PNG decoder -> opaque BGRA (8-bit truecolor / truecolor-alpha / palette)
 # ---------------------------------------------------------------------------
 
 def _paeth(a, b, c):
@@ -196,7 +295,7 @@ def decode_png(data: bytes):
                 line[i] = (line[i] + ((a + b) >> 1)) & 0xFF
             elif ftype == 4:
                 line[i] = (line[i] + _paeth(a, b, c)) & 0xFF
-        # -> opaque premultiplied BGRA (icons must be opaque)
+        # -> opaque BGRA (the App Store 1024 icon must not carry alpha)
         if color_type == 3:
             for x in range(width):
                 idx = line[x] * 3
@@ -212,37 +311,71 @@ def decode_png(data: bytes):
     return width, height, bytes(out)
 
 
+def _nearest_resize_bgra(bgra, sw, sh, dw, dh):
+    """Nearest-neighbour resize of a BGRA buffer (only used if no 1024 source)."""
+    out = bytearray(dw * dh * 4)
+    for y in range(dh):
+        sy = y * sh // dh
+        srow = sy * sw * 4
+        drow = y * dw * 4
+        for x in range(dw):
+            sx = x * sw // dw
+            si = srow + sx * 4
+            di = drow + x * 4
+            out[di:di + 4] = bgra[si:si + 4]
+    return bytes(out)
+
+
 # ---------------------------------------------------------------------------
-# Assemble a .car
+# Assemble a .car (single-size 1024 app icon)
 # ---------------------------------------------------------------------------
 
-def build_car(renditions) -> bytes:
+# idioms the icon is published for; the store derives all pixel sizes itself.
+PUBLISH_IDIOMS = (IDIOM["iphone"], IDIOM["ipad"])
+
+def build_car(bgra_1024: bytes, width=1024, height=1024) -> bytes:
     bom = Bom()
-    bom.add_var("CARHEADER", bom.add_block(carheader(len(renditions))))
-    bom.add_var("KEYFORMAT", bom.add_block(keyformat()))
-    identifier = 0x4D2
-    bom.add_tree("FACETKEYS", [(b"AppIcon", facet_value(identifier))])
     rend_pairs = []
-    for r in renditions:
-        attrs = {
-            A_IDENTIFIER: identifier,
-            A_SCALE: r["scale"],
-            A_IDIOM: r["idiom"],
-            A_SUBTYPE: r.get("subtype", 0),
-            A_DIMENSION1: r.get("point", 0),
-        }
-        key = rendition_key(attrs)
-        celm = celm_uncompressed(r["bgra"])
-        value = csiheader(r["width"], r["height"], r["scale"] * 100, "AppIcon", len(celm)) + celm
-        rend_pairs.append((key, value))
+    mlec = mlec_lzfse(bgra_1024, width, height)
+    tvl_img = image_tvl(width)
+    msis = msis_payload([(width, height, DIM2_1024)])
+    tvl_meta = meta_tvl()
+
+    for idiom in PUBLISH_IDIOMS:
+        # multi-size descriptor rendition (layout 0x3F2)
+        meta_hdr = csiheader(0, 0, 0, "AppIcon", 0x3F2, len(tvl_meta),
+                             len(msis), pixel_format=0, color_space=0)
+        meta_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom,
+                                  A_IDENTIFIER: APPICON_IDENTIFIER,
+                                  A_ELEMENT: APPICON_ELEMENT,
+                                  A_PART: APPICON_PART_META})
+        rend_pairs.append((meta_key, meta_hdr + tvl_meta + msis))
+
+        # 1024 image rendition (layout 0x0C)
+        img_hdr = csiheader(width, height, 100, "Icon.png", 0x0C,
+                            len(tvl_img), len(mlec),
+                            pixel_format="BGRA", color_space=1)
+        img_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom,
+                                 A_DIMENSION2: DIM2_1024,
+                                 A_IDENTIFIER: APPICON_IDENTIFIER,
+                                 A_ELEMENT: APPICON_ELEMENT,
+                                 A_PART: APPICON_PART_IMAGE})
+        rend_pairs.append((img_key, img_hdr + tvl_img + mlec))
+
+    bom.add_var("CARHEADER", bom.add_block(carheader(len(rend_pairs))))
+    bom.add_var("KEYFORMAT", bom.add_block(keyformat()))
+    bom.add_tree("FACETKEYS", [(b"AppIcon",
+                                facet_value(APPICON_ELEMENT, APPICON_PART_IMAGE,
+                                            APPICON_IDENTIFIER))])
     bom.add_tree("RENDITIONS", rend_pairs)
     return bom.serialize()
 
 
 def load_appiconset(path: str):
-    """Parse AppIcon.appiconset/Contents.json + PNGs into renditions."""
+    """Pick (or synthesize) a 1024x1024 BGRA source from an AppIcon.appiconset."""
     contents = json.load(open(os.path.join(path, "Contents.json")))
-    renditions = []
+    best = None  # (area, w, h, bgra)
+    src_1024 = None
     for img in contents.get("images", []):
         fn = img.get("filename")
         if not fn:
@@ -251,23 +384,21 @@ def load_appiconset(path: str):
         if not os.path.exists(png):
             continue
         w, h, bgra = decode_png(open(png, "rb").read())
-        scale = int(img.get("scale", "1x").rstrip("x"))
-        idiom = IDIOM.get(img.get("idiom", "universal"), 0)
-        # point size from "60x60" -> 60 (used to disambiguate same scale/idiom)
-        size_str = img.get("size", f"{w}x{h}")
-        try:
-            point = int(float(size_str.split("x")[0]))
-        except ValueError:
-            point = w
-        renditions.append({"width": w, "height": h, "scale": scale,
-                           "idiom": idiom, "subtype": 0, "point": point, "bgra": bgra})
-    if not renditions:
+        if w == 1024 and h == 1024:
+            src_1024 = bgra
+        if best is None or w * h > best[0]:
+            best = (w * h, w, h, bgra)
+    if src_1024 is not None:
+        return src_1024
+    if best is None:
         raise SystemExit("no icon images found in " + path)
-    return renditions
+    # No native 1024 image: upscale the largest available square source.
+    _, w, h, bgra = best
+    return _nearest_resize_bgra(bgra, w, h, 1024, 1024)
 
 
 # ---------------------------------------------------------------------------
-# Self-test reader
+# Self-test reader / round-trip validator
 # ---------------------------------------------------------------------------
 
 def read_bom(data: bytes):
@@ -285,16 +416,53 @@ def read_bom(data: bytes):
     return vars_, ptrs
 
 
-def selftest(out):
-    px = lambda w, h: b"\xff\xff\xff\xff" * (w * h)
-    rends = [
-        {"width": 120, "height": 120, "scale": 2, "idiom": 1, "point": 60, "bgra": px(120, 120)},
-        {"width": 180, "height": 180, "scale": 3, "idiom": 1, "point": 60, "bgra": px(180, 180)},
-        {"width": 1024, "height": 1024, "scale": 1, "idiom": 0, "point": 1024, "bgra": px(1024, 1024)},
-    ]
-    data = build_car(rends)
+def validate_car(data: bytes):
+    """Parse our own output back: BOM ok, renditions decode, LZFSE round-trips."""
     vars_, ptrs = read_bom(data)
-    print(f"BOM ok: {len(ptrs)} blocks, vars={sorted(vars_)}")
+    assert "CARHEADER" in vars_ and "RENDITIONS" in vars_ and "FACETKEYS" in vars_
+    blk = lambda i: data[ptrs[i][0]:ptrs[i][0] + ptrs[i][1]]
+    tree = blk(vars_["RENDITIONS"])
+    _, child, _, pc, _ = struct.unpack(">IIIIB", tree[4:21])
+    paths = blk(child)
+    isLeaf, cnt = struct.unpack(">HH", paths[:4])
+    images = 0
+    for i in range(cnt):
+        vidx, kidx = struct.unpack_from(">II", paths, 12 + i * 8)
+        v = blk(vidx)
+        layout = struct.unpack_from("<H", v, 36)[0]
+        if layout != 0x0C:
+            continue
+        w, h = struct.unpack_from("<II", v, 12)
+        tvl_len = struct.unpack_from("<I", v, 168)[0]
+        ro = 184 + tvl_len
+        assert v[ro:ro + 4] == b"MLEC", "rendition not MLEC"
+        # walk KCBC blocks, decompress, verify total pixel count
+        body = v[ro + 16:]
+        total = 0
+        p = 0
+        while p + 20 <= len(body) and body[p:p + 4] == b"KCBC":
+            _, _, rows, clen = struct.unpack_from("<IIII", body, p + 4)
+            seg = body[p + 20:p + 20 + clen]
+            with tempfile.NamedTemporaryFile(delete=False) as ti:
+                ti.write(seg); s = ti.name
+            o = s + ".o"
+            subprocess.run(["lzfse", "-decode", "-i", s, "-o", o], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            total += len(open(o, "rb").read())
+            os.remove(s); os.remove(o)
+            p += 20 + clen
+        assert total == w * h * 4, f"pixels {total} != {w*h*4}"
+        images += 1
+    assert images >= 1, "no image renditions"
+    return images
+
+
+def selftest(out):
+    bgra = bytes((0x20, 0x40, 0x80, 0xFF)) * (1024 * 1024)
+    data = build_car(bgra)
+    vars_, ptrs = read_bom(data)
+    imgs = validate_car(data)
+    print(f"BOM ok: {len(ptrs)} blocks, vars={sorted(vars_)}, image renditions={imgs}")
     open(out, "wb").write(data)
     print(f"wrote {out} ({len(data)} bytes)")
 
@@ -303,10 +471,11 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "selftest":
         selftest(sys.argv[2] if len(sys.argv) > 2 else "/tmp/mkcar_selftest.car")
     elif len(sys.argv) == 4 and sys.argv[1] == "build":
-        rends = load_appiconset(sys.argv[2])
-        data = build_car(rends)
+        bgra = load_appiconset(sys.argv[2])
+        data = build_car(bgra)
+        validate_car(data)
         open(sys.argv[3], "wb").write(data)
-        print(f"Assets.car: {len(rends)} renditions, {len(data)} bytes -> {sys.argv[3]}")
+        print(f"Assets.car: 1024 single-size icon, {len(data)} bytes -> {sys.argv[3]}")
     else:
         print("usage: mkcar.py selftest [out.car] | build <AppIcon.appiconset> <out.car>",
               file=sys.stderr)
