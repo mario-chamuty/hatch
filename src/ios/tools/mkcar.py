@@ -248,19 +248,36 @@ def csiheader(width, height, scale_factor, name, layout, tvl_len,
 def _tlv(tag, value):
     return struct.pack("<II", tag, len(value)) + value
 
-def image_tvl(width, height) -> bytes:
+def image_tvl(width, height, stride_bytes=None) -> bytes:
     """104-byte TLV info list preceding a layout-0x0C image rendition. These
     entries are PER-RENDITION: 0x3E9 and 0x3EB embed the bitmap's width/height,
     0x3EF is the row stride. (CoreUI validates them against the rendition;
     leniency-only decoders skip the TLV, which is why a verbatim copy passed
-    local checks but failed ingestion.)"""
+    local checks but failed ingestion.) actool pads EVERY bitmap's rows to a
+    32-byte (8 px) stride - pass the padded stride, not width*4."""
     return (
         _tlv(0x3E9, struct.pack("<IIIII", 1, 0, 0, width, height)) +
         _tlv(0x3EB, struct.pack("<IIIIIII", 1, 0, 0, 0, 0, width, height)) +
         _tlv(0x3EC, struct.pack("<ff", 0.0, 1.0)) +
         _tlv(0x3EE, struct.pack("<I", 1)) +
-        _tlv(0x3EF, struct.pack("<I", width * 4))   # bytes per row
+        _tlv(0x3EF, struct.pack("<I", stride_bytes if stride_bytes is not None
+                                else width * 4))   # bytes per row
     )
+
+
+def pad_rows(bgra: bytes, width: int, height: int):
+    """Pad each pixel row to actool's 8-px (32-byte) stride. Returns
+    (padded_bgra, stride_px). Genuine catalogs carry padded rows in the MLEC
+    payload for every bitmap (direct images AND atlases); a tight stride is a
+    divergence CoreUI's re-encoder may not tolerate."""
+    stride_px = (width + 7) // 8 * 8
+    if stride_px == width:
+        return bgra, stride_px
+    rb, sb = width * 4, stride_px * 4
+    out = bytearray(sb * height)
+    for r in range(height):
+        out[r * sb:r * sb + rb] = bgra[r * rb:(r + 1) * rb]
+    return bytes(out), stride_px
 
 def meta_tvl() -> bytes:
     """28-byte TLV info list preceding the 0x3F2 multi-size descriptor."""
@@ -330,12 +347,15 @@ def lzfse_compress(data: bytes) -> bytes:
 def mlec_lzfse(bgra: bytes, width: int, height: int) -> bytes:
     """MLEC (CELM) payload: row-chunked, LZFSE-compressed KCBC blocks.
 
-    actool caps each chunk at ~1.4 MB of uncompressed pixels, so for a 1024px
-    image that is 341 rows/chunk (341*1024*4 = 1396736). Each chunk is an
-    independent LZFSE stream wrapped as: 'KCBC' u32(0) u32(0) u32(rows) u32(len).
+    actool's chunk policy (verified against every bitmap in a genuine catalog):
+    rows_per_chunk = max(height // 3, 8192 // bytes_per_row) - i.e. roughly
+    thirds, but each chunk holds at least 8 KB of pixels. For a 1024px image
+    that is 341 rows/chunk ([341,341,341,1]); for a 180px-tall icon [60,60,60].
+    Each chunk is an independent LZFSE stream wrapped as:
+    'KCBC' u32(0) u32(0) u32(rows) u32(len).
     """
     bytes_per_row = width * 4
-    rows_per_chunk = max(1, 1396736 // bytes_per_row)
+    rows_per_chunk = max(height // 3, 8192 // bytes_per_row, 1)
     blocks = b""
     nchunks = 0
     row = 0
@@ -461,8 +481,9 @@ def _direct_image(point_or_none, scale, idiom_val, dim2, im, subtype=0):
     if subtype:
         attrs[A_SUBTYPE] = subtype
     key = rendition_key(attrs)
-    mlec = mlec_lzfse(im["bgra"], im["width"], im["height"])
-    tvl = image_tvl(im["width"], im["height"])
+    padded, stride_px = pad_rows(im["bgra"], im["width"], im["height"])
+    mlec = mlec_lzfse(padded, stride_px, im["height"])
+    tvl = image_tvl(im["width"], im["height"], stride_px * 4)
     hdr = csiheader(im["width"], im["height"], scale * 100, im["name"], 0x0C,
                     len(tvl), len(mlec), pixel_format="ARGB", color_space=1)
     return key, hdr + tvl + mlec
@@ -660,6 +681,14 @@ def validate_car(data: bytes):
             continue
         w, h = struct.unpack_from("<II", v, 12)
         tvl_len = struct.unpack_from("<I", v, 168)[0]
+        # row stride from the 0x3EF TLV entry (rows are 8-px padded)
+        stride = w * 4
+        tp = 184
+        while tp + 8 <= 184 + tvl_len:
+            t, l = struct.unpack_from("<II", v, tp)
+            if t == 0x3EF:
+                stride = struct.unpack_from("<I", v, tp + 8)[0]
+            tp += 8 + l
         ro = 184 + tvl_len
         assert v[ro:ro + 4] == b"MLEC", "rendition not MLEC"
         # walk KCBC blocks, decompress, verify total pixel count
@@ -677,7 +706,7 @@ def validate_car(data: bytes):
             total += len(open(o, "rb").read())
             os.remove(s); os.remove(o)
             p += 20 + clen
-        assert total == w * h * 4, f"pixels {total} != {w*h*4}"
+        assert total == stride * h, f"pixels {total} != stride*h {stride*h}"
         images += 1
     assert images >= 1, "no image renditions"
     return images
