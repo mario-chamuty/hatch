@@ -17,6 +17,23 @@ App Store / TestFlight) **without ever touching a Mac**. This is non-negotiable.
 - "It needs a Mac" is never an acceptable conclusion. Keep finding the Mac-free
   way.
 
+## TECH DEBT: port `mkcar.py` (Assets.car writer) to native Rust
+
+`src/ios/tools/mkcar.py` is a Python reverse-engineering scratchpad that is
+currently embedded into the binary (`include_str!`) and shelled out through
+`python3` (plus the `lzfse` CLI) inside `pipeline.sh`. This is a **temporary**
+arrangement so we can iterate on the CAR/BOM/LZFSE format against Apple's
+ingestion. It adds `python3` + `lzfse`-CLI runtime dependencies to the build
+environment and violates the "implement in Rust" standard.
+
+**Once the Assets.car is CONFIRMED accepted by App Store ingestion (ITMS-90596
+clears), the implementation MUST be moved to native Rust** — a proper module
+(e.g. `src/ios/assets_car.rs`) using the existing `image` crate for PNG decode
+and an LZFSE crate (`lzfse` 0.2 FFI to Apple's reference C, or `lzfse_rust`)
+for compression, generating the `.car` bytes in-process and dropping the
+`python3`/`lzfse`-CLI steps from `pipeline.sh`. Do not consider the icon work
+"done" until this port is complete.
+
 ## File Structure & Purpose
 
 ### Core Documentation Files
