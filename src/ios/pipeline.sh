@@ -173,12 +173,15 @@ cat > "$APP/Frameworks/App.framework/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleExecutable</key><string>App</string>
   <key>CFBundleIdentifier</key><string>io.flutter.flutter.app</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>App</string>
   <key>CFBundlePackageType</key><string>FMWK</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleSignature</key><string>????</string>
+  <key>CFBundleVersion</key><string>1.0</string>
   <key>MinimumOSVersion</key><string>@@MINOS@@</string>
 </dict></plist>
 PLIST
@@ -246,6 +249,11 @@ fi
 
 # 5. assets + app icon catalog + Info.plist
 echo "== 5/6 bundle assets + Assets.car + Info.plist =="
+# Xcode strips Headers/ and Modules/ when embedding a framework into an app;
+# genuine App Store bundles never ship them. (Stripped only now - step 4
+# resolves <Flutter/Flutter.h> against the embedded framework's Headers.)
+rm -rf "$APP/Frameworks/Flutter.framework/Headers" \
+       "$APP/Frameworks/Flutter.framework/Modules"
 if [ -d "$PROJ/build/flutter_assets" ]; then
   cp -R "$PROJ/build/flutter_assets/." "$APP/flutter_assets/"
   rm -f "$APP/flutter_assets/kernel_blob.bin"
@@ -256,16 +264,30 @@ fi
 cp "$FLUTTER_FW/icudtl.dat" "$APP/flutter_assets/" 2>/dev/null || true
 
 # App icon asset catalog (Assets.car) generated natively by mkcar.py - no Mac.
+# Xcode/actool ALSO emit the primary icons as loose PNGs at the bundle root
+# (AppIcon60x60@2x.png = the 120x120 ITMS-90022 explicitly checks for) and the
+# legacy CFBundleIcons dict alongside CFBundleIconName - replicate both.
 ICON_PLIST=""
 ICONSET="$PROJ/ios/Runner/Assets.xcassets/AppIcon.appiconset"
 if [ -d "$ICONSET" ] && command -v python3 >/dev/null 2>&1; then
   if python3 "$ROOT/tools/mkcar.py" build "$ICONSET" "$APP/Assets.car" "$MINOS" 2>/tmp/mkcar.err; then
     echo ">> Assets.car generated from AppIcon.appiconset (native, no actool)"
-    ICON_PLIST="  <key>CFBundleIconName</key><string>AppIcon</string>"
+    cp "$ICONSET/Icon-App-60x60@2x.png" "$APP/AppIcon60x60@2x.png" 2>/dev/null \
+      && echo ">> AppIcon60x60@2x.png (120x120) emitted at bundle root"
+    ICON_PLIST="  <key>CFBundleIconName</key><string>AppIcon</string>
+  <key>CFBundleIcons</key><dict>
+    <key>CFBundlePrimaryIcon</key><dict>
+      <key>CFBundleIconFiles</key><array><string>AppIcon60x60</string></array>
+      <key>CFBundleIconName</key><string>AppIcon</string>
+    </dict>
+  </dict>"
   else
     echo ">> WARN: Assets.car generation failed: $(cat /tmp/mkcar.err)" >&2
   fi
 fi
+
+# PkgInfo: 8-byte type+creator file every Xcode-built bundle carries.
+printf 'APPL????' > "$APP/PkgInfo"
 
 cat > "$APP/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -277,6 +299,8 @@ cat > "$APP/Info.plist" <<PLIST
   <key>CFBundleName</key><string>@@APPNAME@@</string>
   <key>CFBundleDisplayName</key><string>@@APPNAME@@</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleSignature</key><string>????</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleShortVersionString</key><string>@@SHORTVER@@</string>
   <key>CFBundleVersion</key><string>@@BUILDVER@@</string>
   <key>LSRequiresIPhoneOS</key><true/>
