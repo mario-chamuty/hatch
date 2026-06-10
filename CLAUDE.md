@@ -34,6 +34,48 @@ for compression, generating the `.car` bytes in-process and dropping the
 `python3`/`lzfse`-CLI steps from `pipeline.sh`. Do not consider the icon work
 "done" until this port is complete.
 
+## CAR format reference catalogs + spec (`temp/`)
+
+To fix the `Assets.car` (ITMS-90596) work properly, `temp/` holds genuine
+`actool`-compiled catalogs downloaded/extracted as ground-truth references, a
+full byte-level format spec, and the dissection tool. These are reference
+material (git-ignored scratch), NOT build inputs.
+
+- **`temp/CAR_FORMAT.md`** – the authoritative byte-level `.car`/BOM/CoreUI
+  format spec: BOM container + invariants, CARHEADER (436B), KEYFORMAT (token
+  order, 7-token@CoreUI-691 vs 10-token@CoreUI-970), EXTENDED_METADATA, the
+  FACETKEYS/RENDITIONS/APPEARANCEKEYS/BITMAPKEYS trees, the 184-byte CSI header,
+  rendition layout types (empirically corrected over the blogs), the TLV info
+  list, MLEC/KCBC/LZFSE payloads, and the app-icon (`0x3F2` SISM) assembly. Built
+  from web reverse-engineering (Timac, dbg.re, Apple Wiki, iineva/bom) PLUS
+  first-hand dissection. Read this before touching `mkcar.py`.
+- **`temp/dissect_car.py`** – exhaustive dumper: `python3 temp/dissect_car.py <file.car>`.
+- Reference catalogs (newest first) + their saved dumps `dissect_*.txt`:
+  - `reference_feather_972.car` – **NEWEST: CoreUI-972 / Xcode 26**, extracted
+    from a current 2026 shipping app (khcrysalis/Feather v2.8.2 IPA). App icon is
+    the iOS-26 **Icon Composer / "liquid glass" layered** format: one 1024 `0xc`
+    direct (Any/Dark/Tintable) + `0x3fb` IconStack + `0x3fc` IconGroup + `0x3f1`
+    colors + `0x3fd` gradients. NO per-size PNGs.
+  - `reference_utm_970.car` – CoreUI-970 / Xcode 26, the only App-Store-INGESTION-PROVEN
+    one. Has BOTH `0x3eb` packed per-size icons AND the layered stack. Uses
+    `Subtype=1792` for the iphone variant.
+  - `iineva_Assets.car` – CoreUI-691 / Xcode 12.5, clean + simple (7 renditions),
+    app icon as `0xc` **direct** + `0x3f2`. Proves packing is an optimization,
+    not a requirement (NOT confirmed ingestion-tested though).
+  - `acextract_iphone.car` – CoreUI-374 (~2016), heavy `0x3eb` packing.
+
+  TWO app-icon paradigms: (a) traditional flat appiconset (per-size PNGs ->
+  `0xc`/`0x3eb` renditions + `0x3f2`) which is what `flutter_launcher_icons`
+  produces and what mkcar must emit; (b) Icon Composer layered (single 1024 +
+  `0x3fb`/`0x3fc`/`0x3fd` stack) for the new Xcode `.icon` tool, which mkcar does
+  NOT need.
+
+Key conclusion: mkcar output is byte-identical to these references in every
+comparable structure (BOM, CSI header, TLV, SISM, keys); the remaining gap is
+the modern **`Subtype=1792` iphone keying** (a second `0x3f2` facet for
+`Idiom=1,Subtype=1792` + matching renditions) and, in the proven UTM reference,
+the `0x3eb` packed form. Those are the next mkcar changes to try for 90596.
+
 ## File Structure & Purpose
 
 ### Core Documentation Files

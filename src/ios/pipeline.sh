@@ -162,6 +162,33 @@ if [ -n "$LLD" ]; then
     -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
     -Xlinker -rpath -Xlinker @executable_path/Frameworks \
     -o "$APP/Runner"
+  # ld64.lld stamps LC_BUILD_VERSION's build-tool entry as tool=4 (TOOL_LLD) with
+  # LLVM's own version. Apple's ingestion reads exactly this field and rejects
+  # anything not produced by Apple's linker (ITMS-90125: "does not seem to have
+  # been built with Apple's linker"). Rewrite the tool entry in place - same size,
+  # no load-command reordering - to tool=3 (TOOL_LD) + a real ld-prime version,
+  # matching the App/Flutter frameworks above.
+  python3 - "$APP/Runner" <<'PY'
+import sys, struct
+p = sys.argv[1]
+d = bytearray(open(p, "rb").read())
+assert struct.unpack_from("<I", d, 0)[0] == 0xfeedfacf, "expected arm64 Mach-O"
+ncmds = struct.unpack_from("<I", d, 16)[0]
+off = 32
+LD_VERSION = 1217 << 16  # ld-prime 1217.0.0
+for _ in range(ncmds):
+    cmd, cmdsize = struct.unpack_from("<II", d, off)
+    if cmd == 0x32:  # LC_BUILD_VERSION
+        ntools = struct.unpack_from("<I", d, off + 20)[0]
+        to = off + 24
+        for _t in range(ntools):
+            tool = struct.unpack_from("<I", d, to)[0]
+            if tool != 3:
+                struct.pack_into("<II", d, to, 3, LD_VERSION)
+            to += 8
+    off += cmdsize
+open(p, "wb").write(d)
+PY
 else
   "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min="$MINOS" \
     "$WORK/main.o" "$WORK/AppDelegate.o" \

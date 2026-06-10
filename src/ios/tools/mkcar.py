@@ -184,6 +184,8 @@ APPICON_PART_IMAGE = 220   # the image renditions (Icon.png)
 APPICON_PART_META = 218    # the multi-size descriptor rendition (0x3F2)
 APPICON_IDENTIFIER = 6849
 DIM2_1024 = 9              # dimension2 slot index for the 1024 marketing size
+# Subtype actool stamps on the iPhone primary (home-screen, 60pt) icon variant.
+IPHONE_PRIMARY_SUBTYPE = 1792   # 0x700
 
 def keyformat() -> bytes:
     return struct.pack("<III", fourcc("kfmt"), 0, len(KEY_TOKENS)) + \
@@ -430,6 +432,41 @@ def build_car(images) -> bytes:
                             im["name"], 0x0C, len(tvl), len(mlec),
                             pixel_format="ARGB", color_space=1)
             rend_pairs.append((key, hdr + tvl + mlec))
+
+    # Modern iPhone primary home-screen icon keying (Subtype=1792). Genuine
+    # actool catalogs (the App-Store-ingestion-proven UTM Remote, and the iineva
+    # sample) expose the iphone 60pt@3x (180px) home-screen icon a SECOND time
+    # under Subtype=1792 as a 90pt @2x rendition, with its own 0x3F2 descriptor
+    # whose SISM lists one (90,90,dim2) entry. mkcar previously omitted this, so
+    # the catalog lacked the modern iphone-icon facet CoreUI ingestion expects.
+    primary = next((im for im in images if im["idiom_str"] == "iphone"
+                    and round(im["point"]) == 60 and im["scale"] == 3), None)
+    if primary is not None:
+        dim2_sub = len(all_points) + 1            # fresh global dimension2 slot
+        sub_msis = msis_payload([(90, 90, dim2_sub)])
+        sub_meta = csiheader(0, 0, 0, "AppIcon", 0x3F2, len(tvl_meta),
+                             len(sub_msis), pixel_format=0, color_space=0)
+        sub_meta_key = rendition_key({A_SCALE: 1, A_IDIOM: IDIOM["iphone"],
+                                      A_SUBTYPE: IPHONE_PRIMARY_SUBTYPE,
+                                      A_IDENTIFIER: APPICON_IDENTIFIER,
+                                      A_ELEMENT: APPICON_ELEMENT,
+                                      A_PART: APPICON_PART_META})
+        rend_pairs.append((sub_meta_key, sub_meta + tvl_meta + sub_msis))
+        # the 180px icon re-keyed as scale=2 (90pt @2x) under the subtype.
+        sub_key = rendition_key({A_SCALE: 2, A_IDIOM: IDIOM["iphone"],
+                                 A_SUBTYPE: IPHONE_PRIMARY_SUBTYPE,
+                                 A_DIMENSION2: dim2_sub,
+                                 A_IDENTIFIER: APPICON_IDENTIFIER,
+                                 A_ELEMENT: APPICON_ELEMENT,
+                                 A_PART: APPICON_PART_IMAGE})
+        if sub_key not in seen:
+            seen.add(sub_key)
+            mlec = mlec_lzfse(primary["bgra"], primary["width"], primary["height"])
+            tvl = image_tvl(primary["width"], primary["height"])
+            hdr = csiheader(primary["width"], primary["height"], 200,
+                            primary["name"], 0x0C, len(tvl), len(mlec),
+                            pixel_format="ARGB", color_space=1)
+            rend_pairs.append((sub_key, hdr + tvl + mlec))
 
     bom.add_var("CARHEADER", bom.add_block(carheader(len(rend_pairs))))
     bom.add_var("KEYFORMAT", bom.add_block(keyformat()))
