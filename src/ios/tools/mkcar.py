@@ -149,15 +149,17 @@ def carheader(rendition_count: int) -> bytes:
         b"Xcode 26.0 (17A321) via AssetCatalogSimulatorAgent",
         uuid, 0, 2, 1, 2)
 
-def extended_metadata() -> bytes:
+def extended_metadata(min_os: str = "13.4") -> bytes:
     """EXTENDED_METADATA 'META' block (1028 bytes). Every real CAR carries it;
     its absence makes CoreUI reject the catalog. Tag 'META' is stored literally
-    (not byte-reversed). Values mirror a genuine Xcode 26 catalog."""
+    (not byte-reversed). deploymentPlatformVersion is the app's iOS deployment
+    target (each genuine catalog carries its own build's value); the authoring
+    tool string mirrors a genuine Xcode 26 catalog."""
     def s(v, n):
         return v.encode("ascii")[:n].ljust(n, b"\x00")
     return (b"META"
             + s("", 256)                              # thinningArguments
-            + s("14.0", 256)                          # deploymentPlatformVersion
+            + s(min_os, 256)                          # deploymentPlatformVersion
             + s("ios", 256)                           # deploymentPlatform
             + s("@(#)PROGRAM:CoreThemeDefinition  PROJECT:CoreThemeDefinition-652"
                 "  [IIO-2773.0.1.2]", 256))           # authoringTool
@@ -171,11 +173,41 @@ APPEARANCE_KEYS = [
     (b"UIAppearanceAny", 0x00),
 ]
 
-# BITMAPKEYS: per-identifier 56-byte bitmap descriptor, keyed by the inline
-# rendition identifier. Verbatim from a genuine catalog for the AppIcon id.
-BITMAPKEYS_DESCRIPTOR = bytes.fromhex(
-    "01000000000000002c0000000a000000ffffffff010000000e000000"
-    "0600000001000100ff03000001000000ffffffffffffffffffffffff")
+# BITMAPKEYS: per-identifier descriptor, keyed by the inline rendition
+# identifier. Semantics reverse-engineered from three genuine catalogs:
+# u32 ver(1), u32 0, u32 size(4+4*ntokens), u32 ntokens, then ONE u32 PER
+# KEYFORMAT TOKEN = bitmask of the attribute values that identifier's
+# renditions use (bit v set <=> some rendition has value v). 0xffffffff is a
+# wildcard, used for Appearance/Identifier/Element/Part. Subtype packs two
+# u16 masks: low = values < 16 (bit 0 for value 0), high = 1 if any value
+# >= 16 (e.g. the iPhone-primary 1792). Copying another catalog's masks
+# verbatim (the old approach) lies about this catalog's contents - e.g.
+# claiming idioms {1,2} while the catalog carries the idiom-6 1024 icon.
+def bitmapkeys_descriptor(rendition_attr_sets) -> bytes:
+    """rendition_attr_sets: iterable of {token_id: value} dicts, one per
+    rendition keyed under this identifier."""
+    wildcard = {A_APPEARANCE, A_IDENTIFIER, A_ELEMENT, A_PART}
+    used = {t: set() for t in KEY_TOKENS}
+    for attrs in rendition_attr_sets:
+        for t in KEY_TOKENS:
+            used[t].add(attrs.get(t, 0))
+    out = struct.pack("<IIII", 1, 0, 4 + 4 * len(KEY_TOKENS), len(KEY_TOKENS))
+    for t in KEY_TOKENS:
+        if t in wildcard:
+            mask = 0xFFFFFFFF
+        elif t == A_SUBTYPE:
+            low = 0
+            for v in used[t]:
+                if v < 16:
+                    low |= 1 << v
+            high = 1 if any(v >= 16 for v in used[t]) else 0
+            mask = (high << 16) | low
+        else:
+            mask = 0
+            for v in used[t]:
+                mask |= 1 << min(v, 31)
+        out += struct.pack("<I", mask)
+    return out
 
 # RenditionAttributeType ids (Car.h)
 A_ELEMENT, A_PART, A_SIZE, A_DIRECTION, A_VALUE = 1, 2, 3, 4, 6
@@ -549,7 +581,7 @@ def _atlas(scale, idiom_val, group, dim2):
     return out
 
 
-def build_car(images) -> bytes:
+def build_car(images, min_os: str = "13.4") -> bytes:
     """images: list of {idiom_str, scale, point, width, height, bgra, name}.
     Emits a flat app-icon catalog in the structure genuine actool produces:
       * per idiom (iPhone, iPad): a 0x3F2 multi-size descriptor; same-scale
@@ -611,8 +643,17 @@ def build_car(images) -> bytes:
                                             APPICON_IDENTIFIER))])
     bom.add_tree("APPEARANCEKEYS",
                  [(name, struct.pack("<H", v)) for name, v in APPEARANCE_KEYS])
-    bom.add_var("EXTENDED_METADATA", bom.add_block(extended_metadata()))
-    bom.add_inline_tree("BITMAPKEYS", [(APPICON_IDENTIFIER, BITMAPKEYS_DESCRIPTOR)])
+    bom.add_var("EXTENDED_METADATA", bom.add_block(extended_metadata(min_os)))
+    # BITMAPKEYS masks computed from the renditions actually keyed under the
+    # AppIcon identifier (atlases carry identifier 0 and are excluded).
+    appicon_attr_sets = []
+    for kbytes, _blob in rend_pairs:
+        attrs = {KEY_TOKENS[i]: v
+                 for i, v in enumerate(struct.unpack("<10H", kbytes))}
+        if attrs.get(A_IDENTIFIER) == APPICON_IDENTIFIER:
+            appicon_attr_sets.append(attrs)
+    bom.add_inline_tree("BITMAPKEYS", [(APPICON_IDENTIFIER,
+                                        bitmapkeys_descriptor(appicon_attr_sets))])
     bom.add_tree("RENDITIONS", rend_pairs)
     return bom.serialize()
 
@@ -733,13 +774,14 @@ def selftest(out):
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "selftest":
         selftest(sys.argv[2] if len(sys.argv) > 2 else "/tmp/mkcar_selftest.car")
-    elif len(sys.argv) == 4 and sys.argv[1] == "build":
+    elif len(sys.argv) in (4, 5) and sys.argv[1] == "build":
         images = load_appiconset(sys.argv[2])
-        data = build_car(images)
+        data = build_car(images, min_os=sys.argv[4] if len(sys.argv) == 5 else "13.4")
         n = validate_car(data)
         open(sys.argv[3], "wb").write(data)
         print(f"Assets.car: {n} icon renditions, {len(data)} bytes -> {sys.argv[3]}")
     else:
-        print("usage: mkcar.py selftest [out.car] | build <AppIcon.appiconset> <out.car>",
+        print("usage: mkcar.py selftest [out.car] | "
+              "build <AppIcon.appiconset> <out.car> [min_os]",
               file=sys.stderr)
         sys.exit(2)

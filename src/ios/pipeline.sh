@@ -259,7 +259,7 @@ cp "$FLUTTER_FW/icudtl.dat" "$APP/flutter_assets/" 2>/dev/null || true
 ICON_PLIST=""
 ICONSET="$PROJ/ios/Runner/Assets.xcassets/AppIcon.appiconset"
 if [ -d "$ICONSET" ] && command -v python3 >/dev/null 2>&1; then
-  if python3 "$ROOT/tools/mkcar.py" build "$ICONSET" "$APP/Assets.car" 2>/tmp/mkcar.err; then
+  if python3 "$ROOT/tools/mkcar.py" build "$ICONSET" "$APP/Assets.car" "$MINOS" 2>/tmp/mkcar.err; then
     echo ">> Assets.car generated from AppIcon.appiconset (native, no actool)"
     ICON_PLIST="  <key>CFBundleIconName</key><string>AppIcon</string>"
   else
