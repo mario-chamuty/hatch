@@ -34,6 +34,48 @@ SDK_VER="26.0"
 SDK_BUILD="23A340"
 XCODE_BUILD="17A324"
 
+# Repair an lld-linked Mach-O so it passes Apple's "built with Apple's linker"
+# check (ITMS-90125): rewrite LC_BUILD_VERSION's build-tool id from 4 (TOOL_LLD)
+# to 3 (TOOL_LD), and append LC_SOURCE_VERSION into the load-command slack if it
+# is absent (lld omits it; every real Apple-ld binary carries it). In-place, same
+# file size, no section content moves. Used for both Runner and App.framework.
+fix_linker_identity() {
+  python3 - "$1" <<'PY'
+import sys, struct
+p = sys.argv[1]
+d = bytearray(open(p, "rb").read())
+assert struct.unpack_from("<I", d, 0)[0] == 0xfeedfacf, "expected arm64 Mach-O"
+ncmds, sizeofcmds = struct.unpack_from("<II", d, 16)
+LC_BUILD_VERSION, LC_SOURCE_VERSION, LC_SEGMENT_64 = 0x32, 0x2A, 0x19
+off, has_source, first_sect = 32, False, 1 << 62
+for _ in range(ncmds):
+    cmd, cmdsize = struct.unpack_from("<II", d, off)
+    if cmd == LC_BUILD_VERSION:
+        ntools = struct.unpack_from("<I", d, off + 20)[0]
+        to = off + 24
+        for _t in range(ntools):
+            if struct.unpack_from("<I", d, to)[0] != 3:
+                struct.pack_into("<II", d, to, 3, 1217 << 16)  # ld-prime 1217.0.0
+            to += 8
+    elif cmd == LC_SOURCE_VERSION:
+        has_source = True
+    elif cmd == LC_SEGMENT_64:
+        nsects = struct.unpack_from("<I", d, off + 64)[0]
+        so = off + 72
+        for _s in range(nsects):
+            soff = struct.unpack_from("<I", d, so + 48)[0]
+            if soff:
+                first_sect = min(first_sect, soff)
+            so += 80
+    off += cmdsize
+if not has_source and 32 + sizeofcmds + 16 <= first_sect:
+    ins = 32 + sizeofcmds
+    d[ins:ins + 16] = struct.pack("<IIQ", LC_SOURCE_VERSION, 16, 1 << 40)  # 1.0
+    struct.pack_into("<II", d, 16, ncmds + 1, sizeofcmds + 16)
+open(p, "wb").write(d)
+PY
+}
+
 WORK="$ROOT/work/@@SAFE@@"
 OUT="$ROOT/out"
 APP="$OUT/Payload/Runner.app"
@@ -71,21 +113,47 @@ PY
   --output-dill "$WORK/app.aot.dill" \
   "$PROJ/lib/main.dart" >/dev/null
 
-# 2. AOT kernel -> Mach-O arm64 App.framework
-echo "== 2/6 gen_snapshot -> App.framework (Mach-O arm64) =="
-"$GS" --snapshot_kind=app-aot-macho-dylib \
-  --macho="$APP/Frameworks/App.framework/App" "$WORK/app.aot.dill"
-"$INT" -id @rpath/App.framework/App "$APP/Frameworks/App.framework/App"
-"$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
-  -output "$APP/Frameworks/App.framework/App" "$APP/Frameworks/App.framework/App" 2>/dev/null || true
-# gen_snapshot marks the __DWARF (debug) segment rwx, so the framework has two
-# executable segments and Apple rejects it (ITMS-90999). Clear the exec bit from
-# every non-__TEXT segment so only __TEXT is executable.
-python3 - "$APP/Frameworks/App.framework/App" <<'PY'
+# 2. AOT kernel -> arm64 assembly -> linked App.framework (Mach-O dylib).
+# A normal Flutter build links App.framework with a real linker; we do the same.
+# Emit AOT *assembly* (--strip drops the DWARF debug sections) and link it with
+# ld64.lld. The direct --snapshot_kind=app-aot-macho-dylib output is a bare
+# snapshot with NO LC_ENCRYPTION_INFO and no linker-produced load commands, which
+# Apple rejects (ITMS-90125: "encryption info ... missing" + "not built with
+# Apple's linker"). Linking yields LC_ENCRYPTION_INFO_64 + chained fixups +
+# exports trie, and --strip removes the rwx __DWARF segment (ITMS-90999) with no
+# post-patch. The Linux gen_snapshot emits ELF-style assembly, so we convert its
+# few ELF-only directives to Mach-O equivalents before assembling.
+echo "== 2/6 gen_snapshot -> assembly -> App.framework (linked) =="
+APPFW="$APP/Frameworks/App.framework/App"
+if [ -n "$LLD" ]; then
+  "$GS" --snapshot_kind=app-aot-assembly --strip \
+    --assembly="$WORK/snapshot.S" "$WORK/app.aot.dill"
+  # ELF -> Mach-O: drop .size/.type (ELF symbol metadata) and the GNU-stack note,
+  # and map the read-only .rodata section to .const (__TEXT,__const).
+  sed -E \
+    -e '/^[[:space:]]*\.(size|type)\b/d' \
+    -e '/^[[:space:]]*\.section[[:space:]]+\.note\.GNU-stack/d' \
+    -e 's/^[[:space:]]*\.section[[:space:]]+\.rodata.*/.const/' \
+    "$WORK/snapshot.S" > "$WORK/snapshot.macho.S"
+  "$CLANG" -arch arm64 -isysroot "$SDK" -c "$WORK/snapshot.macho.S" -o "$WORK/snapshot.o"
+  "$CLANG" -arch arm64 -isysroot "$SDK" -dynamiclib \
+    -fuse-ld="$LLD" -Wl,-fixup_chains -Wl,-platform_version,ios,"$MINOS","$SDK_VER" \
+    -install_name @rpath/App.framework/App \
+    "$WORK/snapshot.o" -o "$APPFW"
+  fix_linker_identity "$APPFW"
+else
+  # Fallback (no lld): the bare macho-dylib. Will NOT pass App Store ingestion
+  # (no encryption info / not linker-built); usable for local/dev installs only.
+  echo ">> WARN: ld64.lld not found; App.framework will not pass App Store ingestion" >&2
+  "$GS" --snapshot_kind=app-aot-macho-dylib --macho="$APPFW" "$WORK/app.aot.dill"
+  "$INT" -id @rpath/App.framework/App "$APPFW"
+  "$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
+    -output "$APPFW" "$APPFW" 2>/dev/null || true
+  # clear the rwx __DWARF exec bit (ITMS-90999) on the bare-snapshot path
+  python3 - "$APPFW" <<'PY'
 import sys, struct
 p = sys.argv[1]
 d = bytearray(open(p, "rb").read())
-assert struct.unpack_from("<I", d, 0)[0] == 0xfeedfacf, "expected arm64 Mach-O"
 ncmds = struct.unpack_from("<I", d, 16)[0]
 off = 32
 for _ in range(ncmds):
@@ -93,13 +161,14 @@ for _ in range(ncmds):
     if cmd == 0x19:  # LC_SEGMENT_64
         seg = d[off + 8:off + 24].split(b"\x00")[0]
         if seg != b"__TEXT":
-            for fld in (56, 60):  # maxprot, initprot
+            for fld in (56, 60):
                 prot = struct.unpack_from("<I", d, off + fld)[0]
                 if prot & 0x4:
                     struct.pack_into("<I", d, off + fld, prot & ~0x4)
     off += cmdsize
 open(p, "wb").write(d)
 PY
+fi
 cat > "$APP/Frameworks/App.framework/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -162,54 +231,9 @@ if [ -n "$LLD" ]; then
     -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
     -Xlinker -rpath -Xlinker @executable_path/Frameworks \
     -o "$APP/Runner"
-  # Apple's "built with Apple's linker" check (ITMS-90125) inspects the main
-  # executable. ld64.lld differs from Apple's ld in two ways we must repair after
-  # the link: (1) it stamps LC_BUILD_VERSION's build-tool id = 4 (TOOL_LLD) where
-  # Apple's ld uses 3 (TOOL_LD), and (2) it does NOT emit LC_SOURCE_VERSION, which
-  # every real Apple-ld main executable carries (verified by diffing against a
-  # genuine App Store binary). We rewrite the tool id in place and append a
-  # LC_SOURCE_VERSION into the load-command slack (the zero padding between the
-  # load commands and the first section, ~14 KB), bumping ncmds/sizeofcmds. No
-  # section content moves, so file offsets stay valid; rcodesign seals it after.
-  python3 - "$APP/Runner" <<'PY'
-import sys, struct
-p = sys.argv[1]
-d = bytearray(open(p, "rb").read())
-assert struct.unpack_from("<I", d, 0)[0] == 0xfeedfacf, "expected arm64 Mach-O"
-ncmds, sizeofcmds = struct.unpack_from("<II", d, 16)
-LD_VERSION = 1217 << 16  # ld-prime 1217.0.0
-LC_BUILD_VERSION, LC_SOURCE_VERSION = 0x32, 0x2A
-off = 32
-has_source = False
-first_sect = 1 << 62
-for _ in range(ncmds):
-    cmd, cmdsize = struct.unpack_from("<II", d, off)
-    if cmd == LC_BUILD_VERSION:
-        ntools = struct.unpack_from("<I", d, off + 20)[0]
-        to = off + 24
-        for _t in range(ntools):
-            if struct.unpack_from("<I", d, to)[0] != 3:
-                struct.pack_into("<II", d, to, 3, LD_VERSION)
-            to += 8
-    elif cmd == LC_SOURCE_VERSION:
-        has_source = True
-    elif cmd == 0x19:  # LC_SEGMENT_64 -> track lowest non-zero section file offset
-        nsects = struct.unpack_from("<I", d, off + 64)[0]
-        so = off + 72
-        for _s in range(nsects):
-            soff = struct.unpack_from("<I", d, so + 48)[0]
-            if soff:
-                first_sect = min(first_sect, soff)
-            so += 80
-    off += cmdsize
-if not has_source:
-    ins = 32 + sizeofcmds
-    assert ins + 16 <= first_sect, "no load-command slack for LC_SOURCE_VERSION"
-    # source_version_command: cmd, cmdsize=16, version 1.0 packed a24.b10.c10.d10.e10
-    d[ins:ins + 16] = struct.pack("<IIQ", LC_SOURCE_VERSION, 16, 1 << 40)
-    struct.pack_into("<II", d, 16, ncmds + 1, sizeofcmds + 16)
-open(p, "wb").write(d)
-PY
+  # Repair lld's linker-identity gaps (tool id 4->3, add LC_SOURCE_VERSION) so the
+  # main executable passes Apple's "built with Apple's linker" check (ITMS-90125).
+  fix_linker_identity "$APP/Runner"
 else
   "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min="$MINOS" \
     "$WORK/main.o" "$WORK/AppDelegate.o" \
