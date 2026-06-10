@@ -85,26 +85,31 @@ class Bom:
     def serialize(self) -> bytes:
         HEADER = 512
         body = bytearray(b"\x00" * HEADER)
-        pointers = [(0, 0)]
+        pointers = [(0, 0)]                      # entry 0 is always the null block
         for data in self.blocks[1:]:
             addr = len(body)
             body += data
             body += b"\x00" * ((-len(body)) % 4)
             pointers.append((addr, len(data)))
-        index_offset = len(body)
-        index = struct.pack(">I", len(pointers))
-        for addr, length in pointers:
-            index += struct.pack(">II", addr, length)
-        index += struct.pack(">I", 0)  # free-list count
-        body += index
+        # The BOM vars table comes BEFORE the block-index table.
         vars_offset = len(body)
         v = struct.pack(">I", len(self.vars))
         for name, idx in self.vars:
             nb = name.encode("ascii")
             v += struct.pack(">IB", idx, len(nb)) + nb
         body += v
+        # The block-index table MUST be last: the BOM invariant is
+        # indexOffset + indexLength == file length (libbom relies on it).
+        index_offset = len(body)
+        index = struct.pack(">I", len(pointers))     # numberOfBlockTablePointers (incl. null)
+        for addr, length in pointers:
+            index += struct.pack(">II", addr, length)
+        index += struct.pack(">I", 0)                # trailing free-list count
+        body += index
+        # header.numberOfBlocks counts NON-null blocks only (excludes entry 0).
+        non_null = sum(1 for _, length in pointers if length != 0)
         header = b"BOMStore" + struct.pack(
-            ">IIIIII", 1, len(pointers), index_offset, len(index), vars_offset, len(v))
+            ">IIIIII", 1, non_null, index_offset, len(index), vars_offset, len(v))
         body[0:len(header)] = header
         return bytes(body)
 
