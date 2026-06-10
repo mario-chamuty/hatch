@@ -87,11 +87,18 @@ def fourcc(s: str) -> int:
     return struct.unpack(">I", s.encode("ascii"))[0]
 
 def carheader(rendition_count: int) -> bytes:
+    # Field values mirror genuine actool/CoreUI output (CoreUI-374). The tail
+    # schemaVersion / colorSpaceID / keySemantics MUST be non-zero (2,1,2) or
+    # CoreUI refuses the catalog on ingestion ("can't be processed", ITMS-90596).
+    # The version strings and a non-zero UUID likewise match actool so the
+    # catalog reads as a real Image Catalog Tool product.
+    uuid = bytes.fromhex("61bb82b8fe5e455c8de300619725e604")
     return struct.pack(
         "<IIIII128s256s16sIIII",
         fourcc("CTAR"), 374, 11, 0, rendition_count,
-        b"@(#)PROGRESS:73", b"IBCocoaTouchImageCatalogTool-mkcar",
-        b"\x00" * 16, 0, 0, 0, 0)
+        b"@(#)PROGRAM:CoreUI  PROJECT:CoreUI-374.1.1",
+        b"CoreThemeDefinition-247:IBCocoaTouchImageCatalogTool-7.3",
+        uuid, 0, 2, 1, 2)
 
 # RenditionAttributeType ids
 A_ELEMENT, A_PART, A_SIZE, A_DIRECTION, A_VALUE = 1, 2, 3, 4, 6
@@ -126,9 +133,10 @@ def csiheader(width, height, scale_factor, name, payload_len, pixel_format="ARGB
     flags = 0x8  # isOpaque (icons have no alpha)
     csimetadata = struct.pack("<IHH128s", 0, 0x3F2, 0, name.encode("ascii")[:128])
     csibitmaplist = struct.pack("<IIII", 0, 0, 0, payload_len)
+    # colorSpaceID 1 = sRGB (actool stamps 1 here; 0 reads as an unknown space).
     return (struct.pack("<IIIIIII", fourcc("CTSI"), 1, flags, width, height,
                         scale_factor, fourcc(pixel_format))
-            + struct.pack("<I", 0) + csimetadata + csibitmaplist)
+            + struct.pack("<I", 1) + csimetadata + csibitmaplist)
 
 def celm_uncompressed(bgra: bytes) -> bytes:
     return struct.pack("<IIII", fourcc("CELM"), 1, 0, len(bgra)) + bgra
