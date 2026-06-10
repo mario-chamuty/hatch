@@ -187,6 +187,19 @@ DIM2_1024 = 9              # dimension2 slot index for the 1024 marketing size
 # Subtype actool stamps on the iPhone primary (home-screen, 60pt) icon variant.
 IPHONE_PRIMARY_SUBTYPE = 1792   # 0x700
 
+# Packed-atlas ("ZZZZPackedAsset") element/part. Genuine actool routes the
+# per-size app-icon bitmaps through shared 0x3EC atlas images keyed by
+# (Scale, Idiom[, Dimension1]) with Element=9 Part=181 and NO identifier; each
+# logical size is a 0x3EB InternalReference (KLNI) into that atlas. Emitting
+# every size as a bare 0x0C direct image (which CoreUI never produces) is the
+# ITMS-90596 cause - confirmed against a real Flutter catalog (Kazumi, CoreUI
+# 918) where the primary 120/180 sizes are atlas refs, not direct images.
+A_PACKED_ELEMENT = 9
+A_PACKED_PART = 181
+PACK_BORDER = 2                 # actool's 2px gutter/border around packed icons
+MARKETING_IDIOM = 6            # idiom actool stamps on the 1024 marketing icon
+LEGACY_POINTS = {50, 57, 72}  # pre-iOS7 sizes modern actool drops
+
 def keyformat() -> bytes:
     return struct.pack("<III", fourcc("kfmt"), 0, len(KEY_TOKENS)) + \
         b"".join(struct.pack("<I", t) for t in KEY_TOKENS)
@@ -240,6 +253,44 @@ def meta_tvl() -> bytes:
     """28-byte TLV info list preceding the 0x3F2 multi-size descriptor."""
     return (
         _tlv(0x3EC, bytes.fromhex("0000000000000000")) +
+        _tlv(0x3EE, struct.pack("<I", 1))
+    )
+
+def atlas_tvl(stride_bytes) -> bytes:
+    """TLV preceding a 0x3EC ZZZZPackedAsset atlas. Unlike an image TLV the
+    0x3E9 entry carries zero width/height (the atlas is addressed by KLNI
+    sub-rects, not as a single image) and there is no 0x3EB entry; 0x3EF is the
+    padded row stride in bytes."""
+    return (
+        _tlv(0x3E9, struct.pack("<IIIII", 1, 0, 0, 0, 0)) +
+        _tlv(0x3EC, struct.pack("<ff", 0.0, 1.0)) +
+        _tlv(0x3EE, struct.pack("<I", 1)) +
+        _tlv(0x3EF, struct.pack("<I", stride_bytes))
+    )
+
+def klni(x, y, w, h, atlas_attrs) -> bytes:
+    """0x3F2 'KLNI' (internal-link) descriptor inside a 0x3EB reference: the
+    icon's pixels live at (x, y, w, h) in the atlas identified by atlas_attrs
+    (a list of (attribute_id, value) pairs, ASCENDING by id, for the atlas's
+    non-zero key tokens: Element=9, Part=181, [Dimension1], Scale, Idiom).
+    Byte layout reverse-engineered from a real catalog: a leading u16(0), the
+    (attr,val) pairs, then a u16(0) terminator form the key blob; the blob is
+    framed by u16(12) u16(keyLen) ... and a trailing u16(0) pad."""
+    blob = (struct.pack("<H", 0)
+            + b"".join(struct.pack("<HH", a, v) for a, v in atlas_attrs)
+            + struct.pack("<H", 0))
+    return (b"KLNI" + struct.pack("<IIIII", 0, x, y, w, h)
+            + struct.pack("<HH", 12, len(blob)) + blob + struct.pack("<H", 0))
+
+def ref_tvl(width, height, klni_blob) -> bytes:
+    """TLV preceding a 0x3EB InternalReference (rendition has no payload). Same
+    0x3E9/0x3EB image entries as a direct image, plus the 0x3F2 KLNI link; no
+    0x3EF stride (the reference owns no pixels)."""
+    return (
+        _tlv(0x3E9, struct.pack("<IIIII", 1, 0, 0, width, height)) +
+        _tlv(0x3EB, struct.pack("<IIIIIII", 1, 0, 0, 0, 0, width, height)) +
+        _tlv(0x3F2, klni_blob) +
+        _tlv(0x3EC, struct.pack("<ff", 0.0, 1.0)) +
         _tlv(0x3EE, struct.pack("<I", 1))
     )
 
@@ -384,89 +435,140 @@ def _nearest_resize_bgra(bgra, sw, sh, dw, dh):
 # Assemble a .car (single-size 1024 app icon)
 # ---------------------------------------------------------------------------
 
-# idioms the icon is published for (the appiconset's "ios-marketing" 1024 is
-# attached to each).
-PUBLISH = [(IDIOM["iphone"], "iphone"), (IDIOM["ipad"], "ipad")]
+# Idioms whose per-size icons are packed into atlases (iPhone, iPad). The 1024
+# marketing icon is handled separately under MARKETING_IDIOM.
+PACKED_IDIOMS = [(IDIOM["iphone"], "iphone"), (IDIOM["ipad"], "ipad")]
+
+
+def _direct_image(point_or_none, scale, idiom_val, dim2, im, subtype=0):
+    """Build a 0x0C direct-image rendition (key, blob) for an icon dict."""
+    attrs = {A_SCALE: scale, A_IDIOM: idiom_val, A_DIMENSION2: dim2,
+             A_IDENTIFIER: APPICON_IDENTIFIER, A_ELEMENT: APPICON_ELEMENT,
+             A_PART: APPICON_PART_IMAGE}
+    if subtype:
+        attrs[A_SUBTYPE] = subtype
+    key = rendition_key(attrs)
+    mlec = mlec_lzfse(im["bgra"], im["width"], im["height"])
+    tvl = image_tvl(im["width"], im["height"])
+    hdr = csiheader(im["width"], im["height"], scale * 100, im["name"], 0x0C,
+                    len(tvl), len(mlec), pixel_format="ARGB", color_space=1)
+    return key, hdr + tvl + mlec
+
+
+def _descriptor(idiom_val, sizes, tvl_meta, subtype=0):
+    """Build a 0x3F2 AppIcon multi-size descriptor (key, blob). sizes is a list
+    of (point, dim2); SISM lists (point, point, dim2)."""
+    sism = msis_payload([(int(p), int(p), d) for p, d in sizes])
+    hdr = csiheader(0, 0, 0, "AppIcon", 0x3F2, len(tvl_meta), len(sism),
+                    pixel_format=0, color_space=0)
+    attrs = {A_SCALE: 1, A_IDIOM: idiom_val, A_IDENTIFIER: APPICON_IDENTIFIER,
+             A_ELEMENT: APPICON_ELEMENT, A_PART: APPICON_PART_META}
+    if subtype:
+        attrs[A_SUBTYPE] = subtype
+    return rendition_key(attrs), hdr + tvl_meta + sism
+
+
+def _atlas(scale, idiom_val, group, dim2):
+    """Pack a same-(scale,idiom) icon group into one 0x3EC ZZZZPackedAsset atlas
+    and emit it plus a 0x3EB InternalReference per icon. Single-row shelf pack
+    with a 2px gutter; the atlas row stride is padded to a multiple of 8 px
+    (matching actool's 32-byte row alignment). Returns a list of (key, blob)."""
+    placements = []                       # (im, px, py)
+    x = PACK_BORDER
+    max_h = max(im["height"] for im in group)
+    for im in group:
+        placements.append((im, x, PACK_BORDER))
+        x += im["width"] + PACK_BORDER
+    content_w, content_h = x, PACK_BORDER + max_h + PACK_BORDER
+    stride_px = (content_w + 7) // 8 * 8
+    buf = bytearray(stride_px * content_h * 4)
+    for im, px, py in placements:
+        row_bytes = im["width"] * 4
+        for r in range(im["height"]):
+            dst = ((py + r) * stride_px + px) * 4
+            buf[dst:dst + row_bytes] = im["bgra"][r * row_bytes:(r + 1) * row_bytes]
+
+    out = []
+    atlas_attrs = [(A_ELEMENT, A_PACKED_ELEMENT), (A_PART, A_PACKED_PART),
+                   (A_SCALE, scale), (A_IDIOM, idiom_val)]
+    mlec = mlec_lzfse(bytes(buf), stride_px, content_h)
+    atvl = atlas_tvl(stride_px * 4)
+    ahdr = csiheader(content_w, content_h, scale * 100,
+                     "ZZZZPackedAsset-%d.1.0-gamut0" % scale, 0x3EC,
+                     len(atvl), len(mlec), pixel_format="ARGB", color_space=1)
+    atlas_key = rendition_key({A_SCALE: scale, A_IDIOM: idiom_val,
+                               A_ELEMENT: A_PACKED_ELEMENT,
+                               A_PART: A_PACKED_PART})
+    out.append((atlas_key, ahdr + atvl + mlec))
+    for im, px, py in placements:
+        kblob = klni(px, py, im["width"], im["height"], atlas_attrs)
+        rtvl = ref_tvl(im["width"], im["height"], kblob)
+        rhdr = csiheader(im["width"], im["height"], im["scale"] * 100,
+                         im["name"], 0x3EB, len(rtvl), 0,
+                         pixel_format="ARGB", color_space=1)
+        rkey = rendition_key({A_SCALE: im["scale"], A_IDIOM: idiom_val,
+                              A_DIMENSION2: dim2[im["point"]],
+                              A_IDENTIFIER: APPICON_IDENTIFIER,
+                              A_ELEMENT: APPICON_ELEMENT,
+                              A_PART: APPICON_PART_IMAGE})
+        out.append((rkey, rhdr + rtvl))
+    return out
+
 
 def build_car(images) -> bytes:
     """images: list of {idiom_str, scale, point, width, height, bgra, name}.
-    Emits, per idiom: a 0x3F2 multi-size descriptor + one 0x0C image rendition
-    per declared size (incl. the 1024 marketing icon). Dimension2 is a global
-    per-point-size slot, kept consistent between renditions and the descriptor."""
-    all_points = sorted({im["point"] for im in images})
-    dim2_of = {p: i + 1 for i, p in enumerate(all_points)}
+    Emits a flat app-icon catalog in the structure genuine actool produces:
+      * per idiom (iPhone, iPad): a 0x3F2 multi-size descriptor; same-scale
+        sizes packed into a 0x3EC ZZZZPackedAsset atlas referenced by 0x3EB
+        KLNI links (a singleton scale group stays a 0x0C direct image, as
+        actool does);
+      * the 1024 marketing icon as a 0x0C image under idiom 6 + its descriptor;
+      * the iPhone primary (60pt@3x -> 90pt@2x, Subtype=1792) as a 0x0C image +
+        its descriptor.
+    Dimension2 is a global per-point-size slot, consistent across descriptors,
+    references and direct images. Legacy (pre-iOS7) 50/57/72pt sizes are dropped
+    to match modern actool output."""
+    imgs = [im for im in images if round(im["point"]) not in LEGACY_POINTS]
+    size_pts = sorted({im["point"] for im in imgs
+                       if im["idiom_str"] != "ios-marketing"})
+    dim2 = {p: i + 1 for i, p in enumerate(size_pts)}
+    dim2[90.0] = len(size_pts) + 1            # iPhone-primary subtype slot
+    dim2[1024.0] = len(size_pts) + 2          # marketing slot
     tvl_meta = meta_tvl()
     bom = Bom()
     rend_pairs = []
-    seen = set()
-    for idiom_val, idiom_name in PUBLISH:
-        ims = [im for im in images
-               if im["idiom_str"] in (idiom_name, "ios-marketing")]
+
+    for idiom_val, idiom_name in PACKED_IDIOMS:
+        ims = [im for im in imgs if im["idiom_str"] == idiom_name]
         if not ims:
             continue
         pts = sorted({im["point"] for im in ims})
-        msis = msis_payload([(int(round(p)), int(round(p)), dim2_of[p]) for p in pts])
-        meta_hdr = csiheader(0, 0, 0, "AppIcon", 0x3F2, len(tvl_meta),
-                             len(msis), pixel_format=0, color_space=0)
-        meta_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom_val,
-                                  A_IDENTIFIER: APPICON_IDENTIFIER,
-                                  A_ELEMENT: APPICON_ELEMENT,
-                                  A_PART: APPICON_PART_META})
-        rend_pairs.append((meta_key, meta_hdr + tvl_meta + msis))
+        rend_pairs.append(_descriptor(idiom_val,
+                                      [(p, dim2[p]) for p in pts], tvl_meta))
+        for scale in sorted({im["scale"] for im in ims}):
+            group = [im for im in ims if im["scale"] == scale]
+            if len(group) == 1:               # actool emits singletons direct
+                im = group[0]
+                rend_pairs.append(_direct_image(im["point"], scale, idiom_val,
+                                                dim2[im["point"]], im))
+            else:
+                rend_pairs.extend(_atlas(scale, idiom_val, group, dim2))
 
-        for im in ims:
-            # Each size is a direct 0x0C image. The pixel-format tag is the
-            # logical "ARGB" (Apple premultiplied), byte-reversed in-file to
-            # "BGRA"; bitmap bytes are B,G,R,A order to match.
-            key = rendition_key({A_SCALE: im["scale"], A_IDIOM: idiom_val,
-                                 A_DIMENSION2: dim2_of[im["point"]],
-                                 A_IDENTIFIER: APPICON_IDENTIFIER,
-                                 A_ELEMENT: APPICON_ELEMENT,
-                                 A_PART: APPICON_PART_IMAGE})
-            if key in seen:
-                continue
-            seen.add(key)
-            mlec = mlec_lzfse(im["bgra"], im["width"], im["height"])
-            tvl = image_tvl(im["width"], im["height"])
-            hdr = csiheader(im["width"], im["height"], im["scale"] * 100,
-                            im["name"], 0x0C, len(tvl), len(mlec),
-                            pixel_format="ARGB", color_space=1)
-            rend_pairs.append((key, hdr + tvl + mlec))
+    marketing = next((im for im in imgs
+                      if im["idiom_str"] == "ios-marketing"), None)
+    if marketing is not None:
+        rend_pairs.append(_descriptor(MARKETING_IDIOM,
+                                      [(1024.0, dim2[1024.0])], tvl_meta))
+        rend_pairs.append(_direct_image(1024.0, 1, MARKETING_IDIOM,
+                                        dim2[1024.0], marketing))
 
-    # Modern iPhone primary home-screen icon keying (Subtype=1792). Genuine
-    # actool catalogs (the App-Store-ingestion-proven UTM Remote, and the iineva
-    # sample) expose the iphone 60pt@3x (180px) home-screen icon a SECOND time
-    # under Subtype=1792 as a 90pt @2x rendition, with its own 0x3F2 descriptor
-    # whose SISM lists one (90,90,dim2) entry. mkcar previously omitted this, so
-    # the catalog lacked the modern iphone-icon facet CoreUI ingestion expects.
-    primary = next((im for im in images if im["idiom_str"] == "iphone"
+    primary = next((im for im in imgs if im["idiom_str"] == "iphone"
                     and round(im["point"]) == 60 and im["scale"] == 3), None)
     if primary is not None:
-        dim2_sub = len(all_points) + 1            # fresh global dimension2 slot
-        sub_msis = msis_payload([(90, 90, dim2_sub)])
-        sub_meta = csiheader(0, 0, 0, "AppIcon", 0x3F2, len(tvl_meta),
-                             len(sub_msis), pixel_format=0, color_space=0)
-        sub_meta_key = rendition_key({A_SCALE: 1, A_IDIOM: IDIOM["iphone"],
-                                      A_SUBTYPE: IPHONE_PRIMARY_SUBTYPE,
-                                      A_IDENTIFIER: APPICON_IDENTIFIER,
-                                      A_ELEMENT: APPICON_ELEMENT,
-                                      A_PART: APPICON_PART_META})
-        rend_pairs.append((sub_meta_key, sub_meta + tvl_meta + sub_msis))
-        # the 180px icon re-keyed as scale=2 (90pt @2x) under the subtype.
-        sub_key = rendition_key({A_SCALE: 2, A_IDIOM: IDIOM["iphone"],
-                                 A_SUBTYPE: IPHONE_PRIMARY_SUBTYPE,
-                                 A_DIMENSION2: dim2_sub,
-                                 A_IDENTIFIER: APPICON_IDENTIFIER,
-                                 A_ELEMENT: APPICON_ELEMENT,
-                                 A_PART: APPICON_PART_IMAGE})
-        if sub_key not in seen:
-            seen.add(sub_key)
-            mlec = mlec_lzfse(primary["bgra"], primary["width"], primary["height"])
-            tvl = image_tvl(primary["width"], primary["height"])
-            hdr = csiheader(primary["width"], primary["height"], 200,
-                            primary["name"], 0x0C, len(tvl), len(mlec),
-                            pixel_format="ARGB", color_space=1)
-            rend_pairs.append((sub_key, hdr + tvl + mlec))
+        rend_pairs.append(_descriptor(IDIOM["iphone"], [(90.0, dim2[90.0])],
+                                      tvl_meta, subtype=IPHONE_PRIMARY_SUBTYPE))
+        rend_pairs.append(_direct_image(90.0, 2, IDIOM["iphone"], dim2[90.0],
+                                        primary, subtype=IPHONE_PRIMARY_SUBTYPE))
 
     bom.add_var("CARHEADER", bom.add_block(carheader(len(rend_pairs))))
     bom.add_var("KEYFORMAT", bom.add_block(keyformat()))
