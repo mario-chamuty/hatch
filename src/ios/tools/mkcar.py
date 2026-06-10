@@ -105,16 +105,40 @@ def fourcc(s: str) -> int:
     return struct.unpack(">I", s.encode("ascii"))[0]
 
 def carheader(rendition_count: int) -> bytes:
-    # Field values mirror genuine actool/CoreUI output (CoreUI-374). The tail
-    # schemaVersion / colorSpaceID / keySemantics MUST be (2,1,2); the version
-    # strings and a non-zero UUID make the catalog read as a real product.
-    uuid = bytes.fromhex("61bb82b8fe5e455c8de300619725e604")
+    # coreuiVersion / storageVersion MUST be current: App Store ingestion
+    # rejects a stale catalog ("rebuild with the latest GM Xcode", ITMS-90596).
+    # A genuine Xcode 26 catalog reports coreuiVersion 970 / storageVersion 17
+    # with these exact version strings and a zero UUID (validated vs real CAR).
+    # Tail schemaVersion / colorSpaceID / keySemantics MUST be (2,1,2).
+    uuid = b"\x00" * 16
     return struct.pack(
         "<IIIII128s256s16sIIII",
-        fourcc("CTAR"), 374, 11, 0, rendition_count,
-        b"@(#)PROGRAM:CoreUI  PROJECT:CoreUI-374.1.1",
-        b"CoreThemeDefinition-247:IBCocoaTouchImageCatalogTool-7.3",
+        fourcc("CTAR"), 970, 17, 0, rendition_count,
+        b"@(#)PROGRAM:CoreUI  PROJECT:CoreUI-970.1",
+        b"Xcode 26.0 (17A321) via AssetCatalogSimulatorAgent",
         uuid, 0, 2, 1, 2)
+
+def extended_metadata() -> bytes:
+    """EXTENDED_METADATA 'META' block (1028 bytes). Every real CAR carries it;
+    its absence makes CoreUI reject the catalog. Tag 'META' is stored literally
+    (not byte-reversed). Values mirror a genuine Xcode 26 catalog."""
+    def s(v, n):
+        return v.encode("ascii")[:n].ljust(n, b"\x00")
+    return (b"META"
+            + s("", 256)                              # thinningArguments
+            + s("14.0", 256)                          # deploymentPlatformVersion
+            + s("ios", 256)                           # deploymentPlatform
+            + s("@(#)PROGRAM:CoreThemeDefinition  PROJECT:CoreThemeDefinition-652"
+                "  [IIO-2773.0.1.2]", 256))           # authoringTool
+
+# APPEARANCEKEYS maps appearance names -> ids; the KEYFORMAT's ThemeAppearance
+# token (7) resolves against this. Renditions use appearance 0 = UIAppearanceAny.
+APPEARANCE_KEYS = [
+    (b"ISAppearanceTintable", 0x0A),
+    (b"UIAppearanceAny", 0x00),
+    (b"UIAppearanceDark", 0x01),
+    (b"UIAppearanceLight", 0x04),
+]
 
 # RenditionAttributeType ids (Car.h)
 A_ELEMENT, A_PART, A_SIZE, A_DIRECTION, A_VALUE = 1, 2, 3, 4, 6
@@ -367,6 +391,9 @@ def build_car(bgra_1024: bytes, width=1024, height=1024) -> bytes:
     bom.add_tree("FACETKEYS", [(b"AppIcon",
                                 facet_value(APPICON_ELEMENT, APPICON_PART_IMAGE,
                                             APPICON_IDENTIFIER))])
+    bom.add_tree("APPEARANCEKEYS",
+                 [(name, struct.pack("<H", v)) for name, v in APPEARANCE_KEYS])
+    bom.add_var("EXTENDED_METADATA", bom.add_block(extended_metadata()))
     bom.add_tree("RENDITIONS", rend_pairs)
     return bom.serialize()
 
