@@ -220,12 +220,16 @@ def csiheader(width, height, scale_factor, name, layout, tvl_len,
 def _tlv(tag, value):
     return struct.pack("<II", tag, len(value)) + value
 
-def image_tvl(width) -> bytes:
-    """104-byte TLV info list preceding a layout-0x0C image rendition."""
+def image_tvl(width, height) -> bytes:
+    """104-byte TLV info list preceding a layout-0x0C image rendition. These
+    entries are PER-RENDITION: 0x3E9 and 0x3EB embed the bitmap's width/height,
+    0x3EF is the row stride. (CoreUI validates them against the rendition;
+    leniency-only decoders skip the TLV, which is why a verbatim copy passed
+    local checks but failed ingestion.)"""
     return (
-        _tlv(0x3E9, bytes.fromhex("0100000000000000000000000004000000040000")) +
-        _tlv(0x3EB, bytes.fromhex("01000000000000000000000000000000000000000004000000040000")) +
-        _tlv(0x3EC, bytes.fromhex("000000000000803f")) +
+        _tlv(0x3E9, struct.pack("<IIIII", 1, 0, 0, width, height)) +
+        _tlv(0x3EB, struct.pack("<IIIIIII", 1, 0, 0, 0, 0, width, height)) +
+        _tlv(0x3EC, struct.pack("<ff", 0.0, 1.0)) +
         _tlv(0x3EE, struct.pack("<I", 1)) +
         _tlv(0x3EF, struct.pack("<I", width * 4))   # bytes per row
     )
@@ -421,7 +425,7 @@ def build_car(images) -> bytes:
                 continue
             seen.add(key)
             mlec = mlec_lzfse(im["bgra"], im["width"], im["height"])
-            tvl = image_tvl(im["width"])
+            tvl = image_tvl(im["width"], im["height"])
             hdr = csiheader(im["width"], im["height"], im["scale"] * 100,
                             im["name"], 0x0C, len(tvl), len(mlec),
                             pixel_format="ARGB", color_space=1)

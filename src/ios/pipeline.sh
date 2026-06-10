@@ -78,6 +78,28 @@ echo "== 2/6 gen_snapshot -> App.framework (Mach-O arm64) =="
 "$INT" -id @rpath/App.framework/App "$APP/Frameworks/App.framework/App"
 "$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
   -output "$APP/Frameworks/App.framework/App" "$APP/Frameworks/App.framework/App" 2>/dev/null || true
+# gen_snapshot marks the __DWARF (debug) segment rwx, so the framework has two
+# executable segments and Apple rejects it (ITMS-90999). Clear the exec bit from
+# every non-__TEXT segment so only __TEXT is executable.
+python3 - "$APP/Frameworks/App.framework/App" <<'PY'
+import sys, struct
+p = sys.argv[1]
+d = bytearray(open(p, "rb").read())
+assert struct.unpack_from("<I", d, 0)[0] == 0xfeedfacf, "expected arm64 Mach-O"
+ncmds = struct.unpack_from("<I", d, 16)[0]
+off = 32
+for _ in range(ncmds):
+    cmd, cmdsize = struct.unpack_from("<II", d, off)
+    if cmd == 0x19:  # LC_SEGMENT_64
+        seg = d[off + 8:off + 24].split(b"\x00")[0]
+        if seg != b"__TEXT":
+            for fld in (56, 60):  # maxprot, initprot
+                prot = struct.unpack_from("<I", d, off + fld)[0]
+                if prot & 0x4:
+                    struct.pack_into("<I", d, off + fld, prot & ~0x4)
+    off += cmdsize
+open(p, "wb").write(d)
+PY
 cat > "$APP/Frameworks/App.framework/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -127,21 +149,28 @@ OBJC
 CFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=$MINOS -fobjc-arc -fmodules -I$FLUTTER_FW/Headers -F$APP/Frameworks"
 "$CLANG" $CFLAGS -c "$WORK/Runner/main.m" -o "$WORK/main.o"
 "$CLANG" $CFLAGS -c "$WORK/Runner/AppDelegate.m" -o "$WORK/AppDelegate.o"
-LINKARGS=""
 if [ -n "$LLD" ]; then
-  LINKARGS="-fuse-ld=$LLD -Wl,-fixup_chains"
-  echo ">> linking Runner with ld64.lld (chained fixups)"
+  echo ">> linking Runner with ld64.lld (chained fixups, build-version sdk $SDK_VER)"
+  # -platform_version makes lld emit a correctly-positioned LC_BUILD_VERSION with
+  # the current SDK in a single pass. We deliberately do NOT post-process with
+  # vtool: vtool appends LC_BUILD_VERSION *after* LC_CODE_SIGNATURE, which marks
+  # the binary as not Apple-linker output (ITMS-90125). Omit -miphoneos-version-min
+  # so clang doesn't also emit a second (sysroot-SDK) platform version.
+  "$CLANG" -arch arm64 -isysroot "$SDK" \
+    -fuse-ld="$LLD" -Wl,-fixup_chains -Wl,-platform_version,ios,"$MINOS","$SDK_VER" \
+    "$WORK/main.o" "$WORK/AppDelegate.o" \
+    -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
+    -Xlinker -rpath -Xlinker @executable_path/Frameworks \
+    -o "$APP/Runner"
+else
+  "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min="$MINOS" \
+    "$WORK/main.o" "$WORK/AppDelegate.o" \
+    -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
+    -Xlinker -rpath -Xlinker @executable_path/Frameworks \
+    -o "$APP/Runner"
+  "$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
+    -output "$APP/Runner.v" "$APP/Runner" && mv "$APP/Runner.v" "$APP/Runner"
 fi
-"$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min="$MINOS" \
-  $LINKARGS \
-  "$WORK/main.o" "$WORK/AppDelegate.o" \
-  -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
-  -Xlinker -rpath -Xlinker @executable_path/Frameworks \
-  -o "$APP/Runner"
-# Stamp a current SDK into the Runner's LC_BUILD_VERSION (+ a linker tool entry)
-# so it reads as a modern Apple-toolchain build for ingestion.
-"$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
-  -output "$APP/Runner.v" "$APP/Runner" && mv "$APP/Runner.v" "$APP/Runner"
 
 # 5. assets + app icon catalog + Info.plist
 echo "== 5/6 bundle assets + Assets.car + Info.plist =="
