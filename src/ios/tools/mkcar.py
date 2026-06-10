@@ -72,14 +72,27 @@ class Bom:
             indices.append((vidx, ident))   # second slot is the literal id, not a block
         self._emit_tree(name, indices)
 
+    BLOCK_SIZE = 4096
+
     def _emit_tree(self, name: str, indices):
         # BOMPaths leaf (big-endian): isLeaf(u16) count(u16) forward(u32) backward(u32)
         paths = struct.pack(">HHII", 1, len(indices), 0, 0)
         for vidx, second in indices:
             paths += struct.pack(">II", vidx, second)
+        # Genuine BOM leaf nodes are allocated at the tree's blockSize and
+        # zero-padded - CoreUI reads each node as a fixed blockSize block. A
+        # tightly-sized node parses fine in lenient decoders (iineva) but is
+        # rejected by CoreUI ingestion (ITMS-90596). Pad to >= blockSize.
+        if len(paths) < self.BLOCK_SIZE:
+            paths += b"\x00" * (self.BLOCK_SIZE - len(paths))
         paths_idx = self.add_block(paths)
-        # BOMTree: 'tree' version child blockSize pathCount unknown
-        tree = b"tree" + struct.pack(">IIIIB", 1, paths_idx, 4096, len(indices), 0)
+        # BOMTree: 'tree' version child blockSize pathCount unknown(u8) + the two
+        # trailing fields (0xffffffff, 0) real CoreUI trees carry (bomutils' 21-
+        # byte struct omits them; CoreUI reads them, so a 21-byte header makes it
+        # read past the block into garbage). Verified vs a real catalog (29 B).
+        tree = (b"tree"
+                + struct.pack(">IIIIB", 1, paths_idx, self.BLOCK_SIZE, len(indices), 0)
+                + struct.pack(">II", 0xFFFFFFFF, 0))
         self.add_var(name, self.add_block(tree))
 
     def serialize(self) -> bytes:
