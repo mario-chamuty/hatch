@@ -378,40 +378,54 @@ def _nearest_resize_bgra(bgra, sw, sh, dw, dh):
 # Assemble a .car (single-size 1024 app icon)
 # ---------------------------------------------------------------------------
 
-# idioms the icon is published for; the store derives all pixel sizes itself.
-PUBLISH_IDIOMS = (IDIOM["iphone"], IDIOM["ipad"])
+# idioms the icon is published for (the appiconset's "ios-marketing" 1024 is
+# attached to each).
+PUBLISH = [(IDIOM["iphone"], "iphone"), (IDIOM["ipad"], "ipad")]
 
-def build_car(bgra_1024: bytes, width=1024, height=1024) -> bytes:
+def build_car(images) -> bytes:
+    """images: list of {idiom_str, scale, point, width, height, bgra, name}.
+    Emits, per idiom: a 0x3F2 multi-size descriptor + one 0x0C image rendition
+    per declared size (incl. the 1024 marketing icon). Dimension2 is a global
+    per-point-size slot, kept consistent between renditions and the descriptor."""
+    all_points = sorted({im["point"] for im in images})
+    dim2_of = {p: i + 1 for i, p in enumerate(all_points)}
+    tvl_meta = meta_tvl()
     bom = Bom()
     rend_pairs = []
-    mlec = mlec_lzfse(bgra_1024, width, height)
-    tvl_img = image_tvl(width)
-    msis = msis_payload([(width, height, DIM2_1024)])
-    tvl_meta = meta_tvl()
-
-    for idiom in PUBLISH_IDIOMS:
-        # multi-size descriptor rendition (layout 0x3F2)
+    seen = set()
+    for idiom_val, idiom_name in PUBLISH:
+        ims = [im for im in images
+               if im["idiom_str"] in (idiom_name, "ios-marketing")]
+        if not ims:
+            continue
+        pts = sorted({im["point"] for im in ims})
+        msis = msis_payload([(int(round(p)), int(round(p)), dim2_of[p]) for p in pts])
         meta_hdr = csiheader(0, 0, 0, "AppIcon", 0x3F2, len(tvl_meta),
                              len(msis), pixel_format=0, color_space=0)
-        meta_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom,
+        meta_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom_val,
                                   A_IDENTIFIER: APPICON_IDENTIFIER,
                                   A_ELEMENT: APPICON_ELEMENT,
                                   A_PART: APPICON_PART_META})
         rend_pairs.append((meta_key, meta_hdr + tvl_meta + msis))
 
-        # 1024 image rendition (layout 0x0C). The pixel-format tag is the
-        # LOGICAL "ARGB" (Apple premultiplied) but, like every CAR tag, is
-        # byte-reversed in-file to "BGRA" (matching genuine actool output and
-        # what CoreUI accepts). The bitmap bytes are B,G,R,A order accordingly.
-        img_hdr = csiheader(width, height, 100, "Icon.png", 0x0C,
-                            len(tvl_img), len(mlec),
-                            pixel_format="ARGB", color_space=1)
-        img_key = rendition_key({A_SCALE: 1, A_IDIOM: idiom,
-                                 A_DIMENSION2: DIM2_1024,
+        for im in ims:
+            # Each size is a direct 0x0C image. The pixel-format tag is the
+            # logical "ARGB" (Apple premultiplied), byte-reversed in-file to
+            # "BGRA"; bitmap bytes are B,G,R,A order to match.
+            key = rendition_key({A_SCALE: im["scale"], A_IDIOM: idiom_val,
+                                 A_DIMENSION2: dim2_of[im["point"]],
                                  A_IDENTIFIER: APPICON_IDENTIFIER,
                                  A_ELEMENT: APPICON_ELEMENT,
                                  A_PART: APPICON_PART_IMAGE})
-        rend_pairs.append((img_key, img_hdr + tvl_img + mlec))
+            if key in seen:
+                continue
+            seen.add(key)
+            mlec = mlec_lzfse(im["bgra"], im["width"], im["height"])
+            tvl = image_tvl(im["width"])
+            hdr = csiheader(im["width"], im["height"], im["scale"] * 100,
+                            im["name"], 0x0C, len(tvl), len(mlec),
+                            pixel_format="ARGB", color_space=1)
+            rend_pairs.append((key, hdr + tvl + mlec))
 
     bom.add_var("CARHEADER", bom.add_block(carheader(len(rend_pairs))))
     bom.add_var("KEYFORMAT", bom.add_block(keyformat()))
@@ -427,10 +441,9 @@ def build_car(bgra_1024: bytes, width=1024, height=1024) -> bytes:
 
 
 def load_appiconset(path: str):
-    """Pick (or synthesize) a 1024x1024 BGRA source from an AppIcon.appiconset."""
+    """Parse AppIcon.appiconset/Contents.json into a list of icon images."""
     contents = json.load(open(os.path.join(path, "Contents.json")))
-    best = None  # (area, w, h, bgra)
-    src_1024 = None
+    images = []
     for img in contents.get("images", []):
         fn = img.get("filename")
         if not fn:
@@ -439,17 +452,19 @@ def load_appiconset(path: str):
         if not os.path.exists(png):
             continue
         w, h, bgra = decode_png(open(png, "rb").read())
-        if w == 1024 and h == 1024:
-            src_1024 = bgra
-        if best is None or w * h > best[0]:
-            best = (w * h, w, h, bgra)
-    if src_1024 is not None:
-        return src_1024
-    if best is None:
+        scale = int(img.get("scale", "1x").rstrip("x"))
+        size_str = img.get("size", "%gx%g" % (w, w))
+        try:
+            point = float(size_str.split("x")[0])
+        except ValueError:
+            point = w / scale
+        images.append({"idiom_str": img.get("idiom", "universal"),
+                       "scale": scale, "point": point,
+                       "width": w, "height": h, "bgra": bgra,
+                       "name": os.path.splitext(fn)[0] + ".png"})
+    if not images:
         raise SystemExit("no icon images found in " + path)
-    # No native 1024 image: upscale the largest available square source.
-    _, w, h, bgra = best
-    return _nearest_resize_bgra(bgra, w, h, 1024, 1024)
+    return images
 
 
 # ---------------------------------------------------------------------------
@@ -513,8 +528,16 @@ def validate_car(data: bytes):
 
 
 def selftest(out):
-    bgra = bytes((0x20, 0x40, 0x80, 0xFF)) * (1024 * 1024)
-    data = build_car(bgra)
+    px = lambda w: bytes((0x20, 0x40, 0x80, 0xFF)) * (w * w)
+    images = [
+        {"idiom_str": "iphone", "scale": 2, "point": 60.0, "width": 120,
+         "height": 120, "bgra": px(120), "name": "icon60@2x.png"},
+        {"idiom_str": "iphone", "scale": 3, "point": 60.0, "width": 180,
+         "height": 180, "bgra": px(180), "name": "icon60@3x.png"},
+        {"idiom_str": "ios-marketing", "scale": 1, "point": 1024.0, "width": 1024,
+         "height": 1024, "bgra": px(1024), "name": "Icon.png"},
+    ]
+    data = build_car(images)
     vars_, ptrs = read_bom(data)
     imgs = validate_car(data)
     print(f"BOM ok: {len(ptrs)} blocks, vars={sorted(vars_)}, image renditions={imgs}")
@@ -526,11 +549,11 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "selftest":
         selftest(sys.argv[2] if len(sys.argv) > 2 else "/tmp/mkcar_selftest.car")
     elif len(sys.argv) == 4 and sys.argv[1] == "build":
-        bgra = load_appiconset(sys.argv[2])
-        data = build_car(bgra)
-        validate_car(data)
+        images = load_appiconset(sys.argv[2])
+        data = build_car(images)
+        n = validate_car(data)
         open(sys.argv[3], "wb").write(data)
-        print(f"Assets.car: 1024 single-size icon, {len(data)} bytes -> {sys.argv[3]}")
+        print(f"Assets.car: {n} icon renditions, {len(data)} bytes -> {sys.argv[3]}")
     else:
         print("usage: mkcar.py selftest [out.car] | build <AppIcon.appiconset> <out.car>",
               file=sys.stderr)
