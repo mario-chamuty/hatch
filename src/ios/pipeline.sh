@@ -162,31 +162,52 @@ if [ -n "$LLD" ]; then
     -F"$APP/Frameworks" -framework Flutter -framework UIKit -framework Foundation \
     -Xlinker -rpath -Xlinker @executable_path/Frameworks \
     -o "$APP/Runner"
-  # ld64.lld stamps LC_BUILD_VERSION's build-tool entry as tool=4 (TOOL_LLD) with
-  # LLVM's own version. Apple's ingestion reads exactly this field and rejects
-  # anything not produced by Apple's linker (ITMS-90125: "does not seem to have
-  # been built with Apple's linker"). Rewrite the tool entry in place - same size,
-  # no load-command reordering - to tool=3 (TOOL_LD) + a real ld-prime version,
-  # matching the App/Flutter frameworks above.
+  # Apple's "built with Apple's linker" check (ITMS-90125) inspects the main
+  # executable. ld64.lld differs from Apple's ld in two ways we must repair after
+  # the link: (1) it stamps LC_BUILD_VERSION's build-tool id = 4 (TOOL_LLD) where
+  # Apple's ld uses 3 (TOOL_LD), and (2) it does NOT emit LC_SOURCE_VERSION, which
+  # every real Apple-ld main executable carries (verified by diffing against a
+  # genuine App Store binary). We rewrite the tool id in place and append a
+  # LC_SOURCE_VERSION into the load-command slack (the zero padding between the
+  # load commands and the first section, ~14 KB), bumping ncmds/sizeofcmds. No
+  # section content moves, so file offsets stay valid; rcodesign seals it after.
   python3 - "$APP/Runner" <<'PY'
 import sys, struct
 p = sys.argv[1]
 d = bytearray(open(p, "rb").read())
 assert struct.unpack_from("<I", d, 0)[0] == 0xfeedfacf, "expected arm64 Mach-O"
-ncmds = struct.unpack_from("<I", d, 16)[0]
-off = 32
+ncmds, sizeofcmds = struct.unpack_from("<II", d, 16)
 LD_VERSION = 1217 << 16  # ld-prime 1217.0.0
+LC_BUILD_VERSION, LC_SOURCE_VERSION = 0x32, 0x2A
+off = 32
+has_source = False
+first_sect = 1 << 62
 for _ in range(ncmds):
     cmd, cmdsize = struct.unpack_from("<II", d, off)
-    if cmd == 0x32:  # LC_BUILD_VERSION
+    if cmd == LC_BUILD_VERSION:
         ntools = struct.unpack_from("<I", d, off + 20)[0]
         to = off + 24
         for _t in range(ntools):
-            tool = struct.unpack_from("<I", d, to)[0]
-            if tool != 3:
+            if struct.unpack_from("<I", d, to)[0] != 3:
                 struct.pack_into("<II", d, to, 3, LD_VERSION)
             to += 8
+    elif cmd == LC_SOURCE_VERSION:
+        has_source = True
+    elif cmd == 0x19:  # LC_SEGMENT_64 -> track lowest non-zero section file offset
+        nsects = struct.unpack_from("<I", d, off + 64)[0]
+        so = off + 72
+        for _s in range(nsects):
+            soff = struct.unpack_from("<I", d, so + 48)[0]
+            if soff:
+                first_sect = min(first_sect, soff)
+            so += 80
     off += cmdsize
+if not has_source:
+    ins = 32 + sizeofcmds
+    assert ins + 16 <= first_sect, "no load-command slack for LC_SOURCE_VERSION"
+    # source_version_command: cmd, cmdsize=16, version 1.0 packed a24.b10.c10.d10.e10
+    d[ins:ins + 16] = struct.pack("<IIQ", LC_SOURCE_VERSION, 16, 1 << 40)
+    struct.pack_into("<II", d, 16, ncmds + 1, sizeofcmds + 16)
 open(p, "wb").write(d)
 PY
 else

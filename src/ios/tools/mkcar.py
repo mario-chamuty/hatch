@@ -150,12 +150,12 @@ def extended_metadata() -> bytes:
                 "  [IIO-2773.0.1.2]", 256))           # authoringTool
 
 # APPEARANCEKEYS maps appearance names -> ids; the KEYFORMAT's ThemeAppearance
-# token (7) resolves against this. Renditions use appearance 0 = UIAppearanceAny.
+# token (7) resolves against this. We declare ONLY the appearances actually used
+# by renditions - every hatch icon rendition is appearance 0 (UIAppearanceAny),
+# matching a real simple actool catalog (iineva). Declaring unused Dark/Light/
+# Tintable keys diverges from real output and is a candidate ITMS-90596 cause.
 APPEARANCE_KEYS = [
-    (b"ISAppearanceTintable", 0x0A),
     (b"UIAppearanceAny", 0x00),
-    (b"UIAppearanceDark", 0x01),
-    (b"UIAppearanceLight", 0x04),
 ]
 
 # BITMAPKEYS: per-identifier 56-byte bitmap descriptor, keyed by the inline
