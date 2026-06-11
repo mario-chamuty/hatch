@@ -331,6 +331,7 @@ cat > "$APP/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>@@SHORTVER@@</string>
   <key>CFBundleVersion</key><string>@@BUILDVER@@</string>
   <key>LSRequiresIPhoneOS</key><true/>
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>MinimumOSVersion</key><string>@@MINOS@@</string>
   <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
   <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
