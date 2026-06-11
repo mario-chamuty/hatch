@@ -36,53 +36,84 @@ const SDK_VER: &str = "26.0";
 const SDK_BUILD: &str = "23A340";
 const XCODE_BUILD: &str = "17A324";
 
-/// Resolved toolchain layout (all real paths on the host).
+/// Resolved toolchain layout (all real paths on the host), host-aware. On Linux
+/// it drives the cctools/ld64 cross toolchain + downloaded engine dart-sdk; on
+/// Windows it drives stock LLVM (clang/ld64.lld) + the windows-x64 gen_snapshot +
+/// fvm's host dart frontend (no cctools - vtool/install_name_tool have no Windows
+/// build, so the one vtool use is replaced by `macho::set_ios_build_version`).
 struct Tools {
+    windows: bool,
     gs: String,
     aotrt: String,
     fes: String,
     platform: String,
     flutter_fw: String,
     clang: String,
-    install_name_tool: String,
-    vtool: String,
+    install_name_tool: Option<String>,
+    vtool: Option<String>,
     sdk: String,
     lld: Option<String>,
-    /// `PATH` value that puts the cctools bin first (the clang wrapper resolves
-    /// `arm-apple-darwin11-ld` from `PATH`).
-    path_env: String,
+    /// arch/target selector for clang: `-arch arm64` (cctools) vs
+    /// `-target arm64-apple-ios<minos>` (stock LLVM).
+    arch: Vec<String>,
+    /// `PATH` value that puts the cctools bin first (Linux only; the clang
+    /// wrapper resolves `arm-apple-darwin11-ld` from `PATH`). None on Windows.
+    path_env: Option<String>,
 }
 
 impl Tools {
-    fn resolve(root: &str) -> Result<Self> {
+    fn resolve(root: &str, minos: &str) -> Result<Self> {
+        let windows = cfg!(windows);
         let eng = format!("{root}/engine");
-        let dartbin = format!("{eng}/dart-sdk/bin");
-        let tc = format!("{root}/cctools-port/usage_examples/ios_toolchain/target/bin");
         let sdk = resolve_sdk(root)?;
-        let lld = which("ld64.lld-18").or_else(|| which("ld64.lld"));
-        let base_path = std::env::var("PATH").unwrap_or_default();
-        Ok(Self {
-            gs: format!("{eng}/gs-linux/gen_snapshot"),
-            aotrt: format!("{dartbin}/dartaotruntime"),
-            fes: format!("{dartbin}/snapshots/frontend_server_aot.dart.snapshot"),
-            platform: format!("{eng}/flutter_patched_sdk_product/platform_strong.dill"),
-            flutter_fw: format!(
-                "{eng}/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework"
-            ),
-            clang: format!("{tc}/arm-apple-darwin11-clang"),
-            install_name_tool: format!("{tc}/arm-apple-darwin11-install_name_tool"),
-            vtool: format!("{tc}/arm-apple-darwin11-vtool"),
-            sdk,
-            lld,
-            path_env: format!("{tc}:{base_path}"),
-        })
+        // Dart frontend: HATCH_DART_SDK_BIN (e.g. fvm's dart-sdk/bin) overrides
+        // the in-toolchain engine/dart-sdk/bin.
+        let dartbin = std::env::var("HATCH_DART_SDK_BIN")
+            .unwrap_or_else(|_| format!("{eng}/dart-sdk/bin"));
+        let exe = if windows { ".exe" } else { "" };
+        let aotrt = format!("{dartbin}/dartaotruntime{exe}");
+        let fes = format!("{dartbin}/snapshots/frontend_server_aot.dart.snapshot");
+        let platform = format!("{eng}/flutter_patched_sdk_product/platform_strong.dill");
+        let flutter_fw =
+            format!("{eng}/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework");
+
+        if windows {
+            let llvm = format!("{root}/llvm/bin");
+            Ok(Self {
+                windows,
+                gs: format!("{eng}/gs-win/gen_snapshot.exe"),
+                aotrt, fes, platform, flutter_fw,
+                clang: format!("{llvm}/clang.exe"),
+                install_name_tool: None,
+                vtool: None,
+                sdk,
+                lld: Some(format!("{llvm}/ld64.lld.exe")),
+                arch: vec!["-target".into(), format!("arm64-apple-ios{minos}")],
+                path_env: None,
+            })
+        } else {
+            let tc = format!("{root}/cctools-port/usage_examples/ios_toolchain/target/bin");
+            let base_path = std::env::var("PATH").unwrap_or_default();
+            Ok(Self {
+                windows,
+                gs: format!("{eng}/gs-linux/gen_snapshot"),
+                aotrt, fes, platform, flutter_fw,
+                clang: format!("{tc}/arm-apple-darwin11-clang"),
+                install_name_tool: Some(format!("{tc}/arm-apple-darwin11-install_name_tool")),
+                vtool: Some(format!("{tc}/arm-apple-darwin11-vtool")),
+                sdk,
+                lld: which("ld64.lld-18").or_else(|| which("ld64.lld")),
+                arch: vec!["-arch".into(), "arm64".into()],
+                path_env: Some(format!("{tc}:{base_path}")),
+            })
+        }
     }
 }
 
 /// Build an unsigned `.ipa` natively. `root` must be a real (expanded) path.
 pub fn build(req: &BuildRequest, root: &str) -> Result<BuildOutput> {
-    let t = Tools::resolve(root)?;
     let minos = req.min_os.as_str();
+    let t = Tools::resolve(root, minos)?;
     let safe = sanitize(&req.app_name);
 
     let work = format!("{root}/work/{safe}");
@@ -99,7 +130,7 @@ pub fn build(req: &BuildRequest, root: &str) -> Result<BuildOutput> {
     fs::create_dir_all(&assets_dir)?;
 
     stage1_aot_kernel(&t, req, &work)?;
-    stage2_app_framework(&t, req, &work, &app, minos)?;
+    stage2_app_framework(&t, &work, &app, minos)?;
     stage3_flutter_framework(&t, &app, minos)?;
     stage4_runner(&t, &work, &app, minos)?;
     let icon_plist = stage5_assets(&t, req, &app, &assets_dir)?;
@@ -117,20 +148,36 @@ fn stage1_aot_kernel(t: &Tools, req: &BuildRequest, work: &str) -> Result<()> {
     if !Path::new(&pkg_src).exists() {
         bail!("missing {pkg_src} - run 'hatch install' first");
     }
-    let fixed = fixups::rewrite_package_config(&fs::read_to_string(&pkg_src)?)?;
+    // The file:///C:/ -> /mnt/c rewrite is only needed when a Linux frontend
+    // consumes a Windows-resolved config. On a Windows host the dart frontend is
+    // native and the C:/ URIs are already correct - leave them untouched.
+    let raw = fs::read_to_string(&pkg_src)?;
+    let content = if t.windows { raw } else { fixups::rewrite_package_config(&raw)? };
     let pkg = format!("{work}/package_config.json");
-    fs::write(&pkg, fixed)?;
+    fs::write(&pkg, content)?;
 
+    // The dart frontend resolves URI-context args (--platform, --sdk-root,
+    // --packages, entrypoint) via Uri.parse, which on Windows misreads an
+    // absolute `C:/...` path as a URI with scheme `c:`. Pass those as proper
+    // `file:///C:/...` URIs on Windows. --output-dill is a plain output path.
+    // --sdk-root is run through Uri.file() (frontend_server._ensureFolderPath),
+    // so it must be a plain path, NOT a file:// URI. A forward-slash drive path
+    // (C:/Users/.../) is what Uri.file accepts on Windows.
     let sdk_root = format!("{}/", parent_str(&t.platform));
+    let platform = dart_uri(t, &t.platform);
+    let packages = dart_uri(t, &pkg);
     let dill = format!("{work}/app.aot.dill");
-    let main = format!("{}/lib/main.dart", req.project_dir);
+    let main = dart_uri(t, &format!("{}/lib/main.dart", req.project_dir));
+    // --output-dill is run through `Uri.file()`, which needs a native Windows
+    // path (backslashes), not a forward-slash path or a file:// URI.
+    let out_dill = win_native(t, &dill);
     let args = [
         t.fes.as_str(),
         "--sdk-root", &sdk_root,
-        "--platform", &t.platform,
+        "--platform", &platform,
         "--target=flutter", "--aot", "--tfa", "-Ddart.vm.product=true",
-        "--packages", &pkg,
-        "--output-dill", &dill,
+        "--packages", &packages,
+        "--output-dill", &out_dill,
         &main,
     ];
     Exec::run(&t.aotrt, args)?.require("AOT kernel (frontend_server)")?;
@@ -141,7 +188,6 @@ fn stage1_aot_kernel(t: &Tools, req: &BuildRequest, work: &str) -> Result<()> {
 
 fn stage2_app_framework(
     t: &Tools,
-    req: &BuildRequest,
     work: &str,
     app: &str,
     minos: &str,
@@ -164,25 +210,33 @@ fn stage2_app_framework(
         fs::write(&macho_asm, elf_to_macho_asm(&fs::read_to_string(&asm)?))?;
 
         let obj = format!("{work}/snapshot.o");
-        run_clang(t, "assemble snapshot",
-            &["-arch", "arm64", "-isysroot", &t.sdk, "-c", &macho_asm, "-o", &obj])?;
-        run_clang(t, "link App.framework",
-            &["-arch", "arm64", "-isysroot", &t.sdk, "-dynamiclib",
-              &format!("-fuse-ld={lld}"), "-Wl,-fixup_chains",
-              &format!("-Wl,-platform_version,ios,{minos},{SDK_VER}"),
-              "-install_name", "@rpath/App.framework/App", &obj, "-o", &appfw])?;
+        let mut a = t.arch.clone();
+        a.extend(["-isysroot".into(), t.sdk.clone(), "-c".into(), macho_asm, "-o".into(), obj.clone()]);
+        run_clang(t, "assemble snapshot", &str_refs(&a))?;
+
+        let mut b = t.arch.clone();
+        b.extend([
+            "-isysroot".into(), t.sdk.clone(), "-dynamiclib".into(),
+            format!("-fuse-ld={lld}"), "-Wl,-fixup_chains".into(),
+            format!("-Wl,-platform_version,ios,{minos},{SDK_VER}"),
+            "-install_name".into(), "@rpath/App.framework/App".into(), obj, "-o".into(), appfw.clone(),
+        ]);
+        run_clang(t, "link App.framework", &str_refs(&b))?;
         patch_macho(&appfw, |d| macho::fix_linker_identity(d))?;
     } else {
         eprintln!(">> WARN: ld64.lld not found; App.framework will not pass App Store ingestion");
         Exec::run(&t.gs, ["--snapshot_kind=app-aot-macho-dylib",
             &format!("--macho={appfw}"), &dill])?
             .require("gen_snapshot (macho-dylib)")?;
-        run_with_path(t, "install_name", &t.install_name_tool,
-            &["-id", "@rpath/App.framework/App", &appfw])?;
-        // best-effort vtool build-version (|| true in bash)
-        let _ = run_with_path(t, "vtool", &t.vtool,
-            &["-arch", "arm64", "-set-build-version", "ios", minos, SDK_VER,
-              "-tool", "ld", "1217", "-replace", "-output", &appfw, &appfw]);
+        if let Some(int) = &t.install_name_tool {
+            run_with_path(t, "install_name", int,
+                &["-id", "@rpath/App.framework/App", &appfw])?;
+        }
+        if let Some(vtool) = &t.vtool {
+            let _ = run_with_path(t, "vtool", vtool,
+                &["-arch", "arm64", "-set-build-version", "ios", minos, SDK_VER,
+                  "-tool", "ld", "1217", "-replace", "-output", &appfw, &appfw]);
+        }
         patch_macho_slice(&appfw, |d| macho::clear_dwarf_exec_bit(d))?;
     }
 
@@ -201,11 +255,17 @@ fn stage3_flutter_framework(t: &Tools, app: &str, minos: &str) -> Result<()> {
     copy_dir_all(Path::new(&t.flutter_fw), Path::new(&dst))?;
     let _ = fs::remove_dir_all(format!("{dst}/_CodeSignature"));
     let fbin = format!("{dst}/Flutter");
-    // best-effort raise of the engine binary's minos (|| true in bash); the plist
-    // patch below is what actually clears ITMS-90208.
-    let _ = run_with_path(t, "vtool (Flutter)", &t.vtool,
-        &["-arch", "arm64", "-set-build-version", "ios", minos, SDK_VER,
-          "-tool", "ld", "1217", "-replace", "-output", &fbin, &fbin]);
+    // Raise the engine binary's LC_BUILD_VERSION minos/sdk to match the patched
+    // plist (ITMS-90208). On Linux use cctools vtool (proven); on Windows there
+    // is no vtool, so do the same edit natively via macho::set_ios_build_version.
+    match &t.vtool {
+        Some(vtool) => {
+            let _ = run_with_path(t, "vtool (Flutter)", vtool,
+                &["-arch", "arm64", "-set-build-version", "ios", minos, SDK_VER,
+                  "-tool", "ld", "1217", "-replace", "-output", &fbin, &fbin]);
+        }
+        None => patch_macho_slice(&fbin, |d| macho::set_ios_build_version(d, minos, SDK_VER))?,
+    }
     fixups::patch_flutter_framework_plist(Path::new(&format!("{dst}/Info.plist")), minos)?;
     Ok(())
 }
@@ -222,19 +282,22 @@ fn stage4_runner(t: &Tools, work: &str, app: &str, minos: &str) -> Result<()> {
 
     let frameworks = format!("{app}/Frameworks");
     let headers = format!("{}/Headers", t.flutter_fw);
-    // CFLAGS as separate argv entries.
-    let cflags: Vec<String> = vec![
-        "-arch".into(), "arm64".into(),
-        "-isysroot".into(), t.sdk.clone(),
-        format!("-miphoneos-version-min={minos}"),
+    // CFLAGS as separate argv entries. On Windows the deployment target rides on
+    // `-target arm64-apple-ios<minos>` (in t.arch); on Linux clang takes
+    // `-arch arm64` + an explicit `-miphoneos-version-min`.
+    let mut cflags: Vec<String> = t.arch.clone();
+    cflags.extend(["-isysroot".into(), t.sdk.clone()]);
+    if !t.windows {
+        cflags.push(format!("-miphoneos-version-min={minos}"));
+    }
+    cflags.extend([
         "-fobjc-arc".into(), "-fmodules".into(),
-        format!("-I{headers}"),
-        format!("-F{frameworks}"),
-    ];
+        format!("-I{headers}"), format!("-F{frameworks}"),
+    ]);
     for (src, obj) in [("main.m", "main.o"), ("AppDelegate.m", "AppDelegate.o")] {
         let mut a: Vec<String> = cflags.clone();
         a.extend(["-c".into(), format!("{rdir}/{src}"), "-o".into(), format!("{work}/{obj}")]);
-        run_with_path(t, "compile Runner", &t.clang, &a.iter().map(|s| s.as_str()).collect::<Vec<_>>())?;
+        run_clang(t, "compile Runner", &str_refs(&a))?;
     }
 
     let runner_bin = format!("{app}/Runner");
@@ -242,30 +305,40 @@ fn stage4_runner(t: &Tools, work: &str, app: &str, minos: &str) -> Result<()> {
     let appdel_o = format!("{work}/AppDelegate.o");
     if let Some(lld) = &t.lld {
         println!(">> linking Runner with ld64.lld (chained fixups, sdk {SDK_VER})");
-        run_clang(t, "link Runner",
-            &["-arch", "arm64", "-isysroot", &t.sdk,
-              &format!("-fuse-ld={lld}"), "-Wl,-fixup_chains",
-              &format!("-Wl,-platform_version,ios,{minos},{SDK_VER}"),
-              &main_o, &appdel_o,
-              "-F", &frameworks, "-framework", "Flutter", "-framework", "UIKit",
-              "-framework", "Foundation",
-              "-Xlinker", "-rpath", "-Xlinker", "@executable_path/Frameworks",
-              "-o", &runner_bin])?;
+        let mut a = t.arch.clone();
+        a.extend([
+            "-isysroot".into(), t.sdk.clone(),
+            format!("-fuse-ld={lld}"), "-Wl,-fixup_chains".into(),
+            format!("-Wl,-platform_version,ios,{minos},{SDK_VER}"),
+            main_o.clone(), appdel_o.clone(),
+            "-F".into(), frameworks.clone(),
+            "-framework".into(), "Flutter".into(), "-framework".into(), "UIKit".into(),
+            "-framework".into(), "Foundation".into(),
+            "-Xlinker".into(), "-rpath".into(), "-Xlinker".into(),
+            "@executable_path/Frameworks".into(), "-o".into(), runner_bin.clone(),
+        ]);
+        run_clang(t, "link Runner", &str_refs(&a))?;
         patch_macho(&runner_bin, |d| macho::fix_linker_identity(d))?;
     } else {
-        run_clang(t, "link Runner",
-            &["-arch", "arm64", "-isysroot", &t.sdk, &format!("-miphoneos-version-min={minos}"),
-              &main_o, &appdel_o,
-              "-F", &frameworks, "-framework", "Flutter", "-framework", "UIKit",
-              "-framework", "Foundation",
-              "-Xlinker", "-rpath", "-Xlinker", "@executable_path/Frameworks",
-              "-o", &runner_bin])?;
-        let raised = format!("{runner_bin}.v");
-        if run_with_path(t, "vtool (Runner)", &t.vtool,
-            &["-arch", "arm64", "-set-build-version", "ios", minos, SDK_VER,
-              "-tool", "ld", "1217", "-replace", "-output", &raised, &runner_bin]).is_ok()
-        {
-            fs::rename(&raised, &runner_bin)?;
+        let mut a = t.arch.clone();
+        a.extend([
+            "-isysroot".into(), t.sdk.clone(), format!("-miphoneos-version-min={minos}"),
+            main_o.clone(), appdel_o.clone(),
+            "-F".into(), frameworks.clone(),
+            "-framework".into(), "Flutter".into(), "-framework".into(), "UIKit".into(),
+            "-framework".into(), "Foundation".into(),
+            "-Xlinker".into(), "-rpath".into(), "-Xlinker".into(),
+            "@executable_path/Frameworks".into(), "-o".into(), runner_bin.clone(),
+        ]);
+        run_clang(t, "link Runner", &str_refs(&a))?;
+        if let Some(vtool) = &t.vtool {
+            let raised = format!("{runner_bin}.v");
+            if run_with_path(t, "vtool (Runner)", vtool,
+                &["-arch", "arm64", "-set-build-version", "ios", minos, SDK_VER,
+                  "-tool", "ld", "1217", "-replace", "-output", &raised, &runner_bin]).is_ok()
+            {
+                fs::rename(&raised, &runner_bin)?;
+            }
         }
     }
     Ok(())
@@ -346,12 +419,43 @@ fn parent_str(p: &str) -> String {
     Path::new(p).parent().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
+fn str_refs(v: &[String]) -> Vec<&str> {
+    v.iter().map(|s| s.as_str()).collect()
+}
+
+/// On Windows, turn an absolute path into a `file:///C:/...` URI so the dart
+/// frontend's `Uri.parse` does not mistake the drive letter for a URI scheme.
+/// On Linux the dart tools accept plain paths, so pass through unchanged.
+fn dart_uri(t: &Tools, path: &str) -> String {
+    if t.windows {
+        format!("file:///{}", path.replace('\\', "/"))
+    } else {
+        path.to_string()
+    }
+}
+
+/// On Windows, convert a forward-slash path to a native backslash path (for args
+/// consumed via `Uri.file()`); pass through on Linux.
+fn win_native(t: &Tools, path: &str) -> String {
+    if t.windows {
+        path.replace('/', "\\")
+    } else {
+        path.to_string()
+    }
+}
+
 fn run_clang(t: &Tools, what: &str, args: &[&str]) -> Result<()> {
-    run_with_path(t, what, &t.clang, args)
+    let clang = t.clang.clone();
+    run_with_path(t, what, &clang, args)
 }
 
 fn run_with_path(t: &Tools, what: &str, prog: &str, args: &[&str]) -> Result<()> {
-    Exec::run_full(prog, args.iter(), None, &[("PATH", t.path_env.as_str())])?
+    // cctools clang resolves its linker from PATH (Linux); stock LLVM does not.
+    let env: Vec<(&str, &str)> = match &t.path_env {
+        Some(p) => vec![("PATH", p.as_str())],
+        None => vec![],
+    };
+    Exec::run_full(prog, args.iter(), None, &env)?
         .require(what)
         .map(|_| ())
 }

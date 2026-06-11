@@ -98,6 +98,46 @@ pub fn fix_linker_identity(d: &mut Vec<u8>) -> Result<()> {
     Ok(())
 }
 
+/// Parse a `"13.4"` / `"26.0"` version string into the packed `xxxx.yy.zz`
+/// (a16.b8.c8) form used by `LC_BUILD_VERSION`.
+fn pack_version(v: &str) -> u32 {
+    let mut it = v.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let a = it.next().unwrap_or(0);
+    let b = it.next().unwrap_or(0);
+    let c = it.next().unwrap_or(0);
+    (a << 16) | (b << 8) | c
+}
+
+/// Set the iOS `LC_BUILD_VERSION` minos + sdk (and stamp `tool = ld 1217`) on a
+/// linked Mach-O. This is the pure-Rust replacement for the cctools `vtool
+/// -set-build-version ios <minos> <sdk> -tool ld 1217` call used on the Flutter
+/// engine binary (ITMS-90208 alignment) - cctools/vtool has no Windows build.
+pub fn set_ios_build_version(d: &mut [u8], minos: &str, sdk: &str) -> Result<()> {
+    check_magic(d)?;
+    let minos_p = pack_version(minos);
+    let sdk_p = pack_version(sdk);
+    let ncmds = rd_u32(d, 16);
+    let mut off = 32usize;
+    for _ in 0..ncmds {
+        let cmd = rd_u32(d, off);
+        let cmdsize = rd_u32(d, off + 4) as usize;
+        if cmd == LC_BUILD_VERSION {
+            // platform(off+8) minos(off+12) sdk(off+16) ntools(off+20)
+            wr_u32(d, off + 12, minos_p);
+            wr_u32(d, off + 16, sdk_p);
+            let ntools = rd_u32(d, off + 20);
+            let mut to = off + 24;
+            for _ in 0..ntools {
+                wr_u32(d, to, TOOL_LD);
+                wr_u32(d, to + 4, LD_VERSION);
+                to += 8;
+            }
+        }
+        off += cmdsize;
+    }
+    Ok(())
+}
+
 /// Clear the executable protection bit on every non-`__TEXT` segment (ITMS-90999
 /// on the bare-snapshot path). Mirrors the inline python in `pipeline.sh`.
 pub fn clear_dwarf_exec_bit(d: &mut [u8]) -> Result<()> {

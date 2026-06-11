@@ -16,14 +16,16 @@ fn native_build_produces_ipa() {
     let root = std::env::var("TOOLCHAIN_ROOT").expect("set TOOLCHAIN_ROOT");
     let bundle_id = std::env::var("BUNDLE_ID").unwrap_or_else(|_| "com.scamnemesis.app".into());
     let app_name = std::env::var("APP_NAME").unwrap_or_else(|_| "ScamNemesis".into());
+    let build_number = std::env::var("BUILD_NUMBER").unwrap_or_else(|_| "999".into());
+    let short_version = std::env::var("SHORT_VERSION").unwrap_or_else(|_| "1.0.0".into());
 
     let req = BuildRequest {
         project_dir,
         app_name,
         bundle_id,
         min_os: "13.4".into(),
-        short_version: "1.0.0".into(),
-        build_number: "999".into(),
+        short_version,
+        build_number,
     };
 
     let out = native_pipeline::build(&req, &root).expect("native build");

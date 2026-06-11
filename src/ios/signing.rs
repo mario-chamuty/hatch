@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 
+use super::exec::Exec;
 use super::runner::Runner;
 
 /// Generate a fresh 2048-bit RSA private key and a CSR for it. Returns the CSR
@@ -142,4 +143,137 @@ rm -f "{out}"
 pub fn decode_b64(b64: &str) -> Result<Vec<u8>> {
     let clean: String = b64.split_whitespace().collect();
     STANDARD.decode(clean.as_bytes()).context("decoding base64 blob")
+}
+
+/// Extract the `Entitlements` dict from a `.mobileprovision` and write it as a
+/// standalone XML plist. The profile is a CMS SignedData whose content is the
+/// provisioning plist in cleartext, so we slice out the `<?xml ... </plist>`
+/// span and parse it - no openssl/CMS needed.
+pub fn entitlements_from_profile(profile_path: &std::path::Path, out_xml: &std::path::Path) -> Result<()> {
+    let data = std::fs::read(profile_path)
+        .with_context(|| format!("reading {}", profile_path.display()))?;
+    let start = find_sub(&data, b"<?xml").context("no plist in provisioning profile")?;
+    let end = find_sub(&data, b"</plist>").context("truncated plist in profile")? + b"</plist>".len();
+    let value = plist::Value::from_reader_xml(std::io::Cursor::new(&data[start..end]))
+        .context("parsing profile plist")?;
+    let ent = value
+        .as_dictionary()
+        .and_then(|d| d.get("Entitlements"))
+        .context("profile has no Entitlements")?;
+    ent.to_file_xml(out_xml)
+        .with_context(|| format!("writing {}", out_xml.display()))?;
+    Ok(())
+}
+
+fn find_sub(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Sign an unsigned `.ipa` to `out` entirely host-natively (no bash/openssl/
+/// python): unpack via the zip crate, embed the profile, derive entitlements
+/// from it, sign the `.app` with `rcodesign`, repack. Used on the Windows-native
+/// path; `rcodesign` is the cross-platform `apple-codesign` binary.
+pub fn sign_ipa_native(
+    rcodesign: &str,
+    ipa_path: &str,
+    p12_path: &str,
+    p12_password: &str,
+    profile_path: &str,
+    out_path: &str,
+) -> Result<()> {
+    use std::path::Path;
+    let work = std::env::temp_dir().join(format!("hatch-sign-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work)?;
+
+    // Unzip the IPA.
+    let f = std::fs::File::open(ipa_path).with_context(|| format!("opening {ipa_path}"))?;
+    let mut zip = zip::ZipArchive::new(f).context("reading IPA zip")?;
+    for i in 0..zip.len() {
+        let mut e = zip.by_index(i)?;
+        let Some(rel) = e.enclosed_name() else { continue };
+        let dst = work.join(rel);
+        if e.is_dir() {
+            std::fs::create_dir_all(&dst)?;
+        } else {
+            if let Some(p) = dst.parent() {
+                std::fs::create_dir_all(p)?;
+            }
+            let mut o = std::fs::File::create(&dst)?;
+            std::io::copy(&mut e, &mut o)?;
+        }
+    }
+
+    // Locate Payload/<App>.app.
+    let payload = work.join("Payload");
+    let app = std::fs::read_dir(&payload)?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().map(|x| x == "app").unwrap_or(false))
+        .context("no .app in Payload")?;
+
+    // Embed the profile + derive entitlements. rcodesign's --entitlements-xml-file
+    // uses `[scope:]path` syntax, so an absolute Windows path (C:\...) is misread
+    // as scope "C". Write ent.plist into the work dir and pass it RELATIVE, with
+    // the work dir as the cwd, so the path carries no drive colon.
+    std::fs::copy(profile_path, app.join("embedded.mobileprovision"))?;
+    entitlements_from_profile(Path::new(profile_path), &work.join("ent.plist"))?;
+
+    // Sign the bundle (rcodesign recurses into nested frameworks).
+    let out = Exec::run_full(
+        rcodesign,
+        [
+            "sign",
+            "--p12-file", p12_path,
+            "--p12-password", p12_password,
+            "--entitlements-xml-file", "ent.plist",
+            &app.to_string_lossy(),
+        ],
+        Some(&work),
+        &[],
+    )?;
+    if !out.ok() {
+        anyhow::bail!("rcodesign failed (exit {}):\n{}", out.status, out.stderr.trim());
+    }
+
+    // Repackage the IPA (Mach-O files get the exec bit).
+    let _ = std::fs::remove_file(out_path);
+    zip_payload(&work, Path::new(out_path))?;
+    Ok(())
+}
+
+/// Zip `<work>/Payload` into `out` with entries named `Payload/...`, marking
+/// Mach-O files executable.
+fn zip_payload(work: &std::path::Path, out: &std::path::Path) -> Result<()> {
+    use zip::write::SimpleFileOptions;
+    let file = std::fs::File::create(out)?;
+    let mut zw = zip::ZipWriter::new(file);
+    let base = work;
+    let mut stack = vec![work.join("Payload")];
+    while let Some(dir) = stack.pop() {
+        let rel = format!("{}/", rel_slash(base, &dir));
+        zw.add_directory(rel, SimpleFileOptions::default())?;
+        let mut entries: Vec<_> = std::fs::read_dir(&dir)?.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let p = e.path();
+            if e.file_type()?.is_dir() {
+                stack.push(p);
+            } else {
+                let data = std::fs::read(&p)?;
+                let exec = data.len() >= 4 && data[..4] == [0xCF, 0xFA, 0xED, 0xFE];
+                let opts = SimpleFileOptions::default()
+                    .unix_permissions(if exec { 0o755 } else { 0o644 });
+                zw.start_file(rel_slash(base, &p), opts)?;
+                use std::io::Write;
+                zw.write_all(&data)?;
+            }
+        }
+    }
+    zw.finish()?;
+    Ok(())
+}
+
+fn rel_slash(base: &std::path::Path, p: &std::path::Path) -> String {
+    p.strip_prefix(base).unwrap_or(p).to_string_lossy().replace('\\', "/")
 }
