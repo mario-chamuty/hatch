@@ -1,1 +1,0 @@
-{"name": "test_conflict_git_path", "description": "Test git and path conflict", "sdk": {"flutter": "3.24.2", "dart": ">=3.5.0 <4.0.0"}, "require": {"http": "^0.13.0", "bad_package": {"version": "^1.0.0", "git": "https://github.com/example/package.git", "path": "../local"}}}

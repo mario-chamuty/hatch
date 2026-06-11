@@ -3,9 +3,6 @@
 **/*.rs.bk
 *.pdb
 
-# Cargo
-Cargo.lock
-
 # IDE
 .idea/
 .vscode/
@@ -81,9 +78,10 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-/HATCH.md
-/icon.psd
-/PLAN.md
+
+# Local-only working files (design notes, scratch examples, agent instructions)
+/.local/
+/CLAUDE.md
 /.claude/settings.local.json
 
 # iOS build PoC scratch / large test caches

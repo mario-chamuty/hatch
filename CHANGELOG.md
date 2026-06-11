@@ -29,6 +29,10 @@
 
 ### Features
 
+- **Mac-free iOS builds.** `hatch ios build` compiles, links, signs (via
+  `rcodesign`), and uploads an iOS app to App Store Connect / TestFlight with no
+  macOS, Xcode, or `actool` involved. The fully native Rust pipeline is the
+  default on Linux; a Windows-native path (no WSL) is in progress.
 - **Scripts may now be declared as an argv array** (e.g.
   `["flutter", "build", "apk"]`), which bypasses the shell entirely.
   Recommended for new packages; the string form is still supported and

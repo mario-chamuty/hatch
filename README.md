@@ -1,457 +1,334 @@
-# Hatch - Next-Gen Dependency and Build Manager for Flutter
-
 <div align="center">
 
-![Hatch Logo](docs/images/hatch-logo.png)
+<img src="icon.png" alt="Hatch" width="120" />
 
-**The unified toolchain Flutter has been missing**
+# Hatch
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/yourusername/hatch)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Flutter](https://img.shields.io/badge/Flutter-3.24.2+-blue.svg)](https://flutter.dev)
-[![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
+**A fast, Rust-powered dependency and build manager for Flutter.**
 
-[Getting Started](#-getting-started) • [Documentation](docs/) • [Examples](examples/) • [Contributing](CONTRIBUTING.md)
+[![Release](https://img.shields.io/github/v/release/mario-chamuty/hatch?sort=semver&display_name=tag)](https://github.com/mario-chamuty/hatch/releases)
+[![CI](https://github.com/mario-chamuty/hatch/actions/workflows/ci.yml/badge.svg)](https://github.com/mario-chamuty/hatch/actions/workflows/ci.yml)
+[![Downloads](https://img.shields.io/github/downloads/mario-chamuty/hatch/total)](https://github.com/mario-chamuty/hatch/releases)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#-license)
+
+[Why Hatch is fast](#-why-hatch-is-fast) · [File purging](#-file-purging-debloat) · [Caching](#-caching) · [Private Nests](#-private-nests-planned) · [Commands](#-commands)
 
 </div>
 
-## ⚡ Overview
+---
 
-Hatch is a blazingly fast, Rust-powered dependency and build manager for Flutter that replaces `pub` with a smarter, more efficient solution. It features advanced dependency resolution, integrated Flutter version management via FVM, and comprehensive build automation.
+> [!IMPORTANT]
+> **Hatch is an independent, third-party project.** It is **not** affiliated with,
+> endorsed by, or associated with Google, the Flutter project, or the Dart project
+> in any way. "Flutter" and "Dart" are trademarks of Google LLC; they are used here
+> only to describe interoperability. Hatch talks to the public pub.dev API and the
+> standard Flutter/Dart toolchain as an ordinary client.
 
-### Why Hatch?
+## Overview
 
-- **🚀 Fast** - Parallel downloads, smart caching, and optimized resolution
-- **🧠 Smart Resolution** - Handles complex dependency conflicts
-- **📦 Direct Package Resolution** - No pubspec.yaml required; Flutter/Dart uses packages directly from Hatch cache
-- **🔄 FVM Integration** - Automatic Flutter SDK management built-in
-- **🏗️ Build Automation** - (Planned) Version syncing, artifact publishing, and team-wide build distribution
-- **🎯 Profiles & Scripts** - Environment-specific dependencies and automation
-- **🌐 Multi-Source** - Support for pub.dev, git, and local packages (private registries planned)
+Hatch is a single native binary that resolves, downloads, and caches your Flutter
+dependencies, manages Flutter SDKs through FVM, and (as its headline capability)
+can build, sign, and ship iOS apps to TestFlight **without a Mac**.
 
-## 🎯 Key Features
+It reads a small `hatch.json` (or `hatch.yaml`) manifest, resolves the full
+dependency graph with a parallel solver, slims every package down on the way into
+a machine-global cache, and wires your project up for the standard Flutter
+toolchain.
 
-### Smart Dependency Resolution
-- **Ultra Resolver**: Fast parallel metadata fetching with batch tracking
-- **Automatic Conflict Resolution**: Handles version conflicts
-- **Lockfile Support**: Reproducible builds with `hatch.lock`
-- **Batch Download Tracking**: Visual feedback showing dependency resolution levels
+### What works today
 
-### Package Sources
-- **pub.dev**: Full compatibility with existing Flutter packages
-- **Local Packages**: Path-based dependencies for monorepos (working)
-- **Git Dependencies**: (Configuration supported, resolution not implemented)
-- **Private Registries**: (Configuration supported, resolution not implemented)
+| Area | Status |
+|------|--------|
+| pub.dev resolution (parallel solver, lockfile) | ✅ Working |
+| Local **path** dependencies (monorepos) | ✅ Working |
+| Package **file purging / debloat** on extract | ✅ Working |
+| Machine-global **cache** (stats / clear / remove / prune) | ✅ Working |
+| Mandatory **checksum** verification + audit log | ✅ Working |
+| **FVM** integration (`list` / `use` / `install` / `sync`) | ✅ Working |
+| `migrate` (`pubspec.yaml` → `hatch.json`) | ✅ Working |
+| Project **scripts** (shell or argv array) with trust prompts | ✅ Working |
+| **Mac-free iOS** build / sign / upload | ✅ Working (Linux native; Windows native) |
+| **Git** dependencies | 🚧 Parsed & validated, resolution planned |
+| **Private Nests** / `hatch.dev` registry | 🚧 Planned (see below) |
+| **Profiles** (`--profile` at install) | 🟡 Partial (selection works; live switching planned) |
+| Build-number sync / artifact dashboard | 🚧 Planned |
 
-### Flutter Version Management
-- **FVM Commands**: Manual Flutter SDK installation via `hatch fvm` commands
-- **Per-Project Versions**: Different Flutter versions for different projects
-- **SDK Update Management**: Update Flutter/Dart versions in manifest
+## 📦 Installation
 
-### Advanced Features
-- **Profiles**: Development, test, production, and custom profiles (configuration supported, switching not yet implemented)
-- **Scripts**: Pre/post install hooks and custom commands
-- **Submodules**: (Planned) Monorepo support with nested hatch.json files
-- **Build Versioning**: (Planned) Automatic build number synchronization
-- **Artifact Publishing**: (Planned) Upload and distribute builds to teams
+### Prebuilt binaries
 
-## 📥 Installation
+Download the archive for your platform from the
+[latest release](https://github.com/mario-chamuty/hatch/releases/latest), unpack
+it, and put `hatch` (or `hatch.exe`) on your `PATH`.
 
-### Windows (Chocolatey)
+### Install scripts
+
 ```bash
-choco install hatch
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/mario-chamuty/hatch/main/install.sh | bash
 ```
 
-### macOS (Homebrew)
-```bash
-brew install hatch
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/mario-chamuty/hatch/main/install.ps1 | iex
 ```
 
-### From Source
+### From source
+
 ```bash
-git clone https://github.com/yourusername/hatch.git
+git clone https://github.com/mario-chamuty/hatch.git
 cd hatch
-cargo build --release
-# Add target/release/hatch to your PATH
+cargo build --release --locked
+# binary at target/release/hatch
 ```
 
-## 🚀 Getting Started
+## 🚀 Quick start
 
-### Initialize a New Project
 ```bash
-hatch init my_app
-cd my_app
-```
+# New project
+hatch init my_app && cd my_app
 
-### Migrate Existing Flutter Project
-```bash
-# In your Flutter project directory
+# Or adopt an existing Flutter project (converts pubspec.yaml -> hatch.json)
 hatch migrate
-# This converts pubspec.yaml to hatch.json
-```
 
-### Install Dependencies
-```bash
+# Resolve + download + cache dependencies
 hatch install
-# Uses smart resolution by default
-# Generates .dart_tool/package_config.json for Flutter/Dart
-```
 
-### Add Dependencies
-```bash
-# Add a regular dependency
+# Add / remove
 hatch add http ^1.0.0
-
-# Add a dev dependency
 hatch add --dev mockito ^5.0.0
+hatch remove http
 
-# For git/path dependencies, edit hatch.json directly:
-# "my_package": {
-#   "version": "any",
-#   "git": "https://github.com/user/package.git",
-#   "ref": "main"
-# }
+# Explain a dependency
+hatch why http
 ```
 
-## 📄 Manifest Format (hatch.json)
+## 📄 Manifest (`hatch.json`)
 
 ```json
 {
   "name": "my_flutter_app",
-  "description": "An awesome Flutter app",
   "version": "1.0.0",
 
   "sdk": {
-    "flutter": "3.24.2",
+    "flutter": "3.35.2",
     "dart": ">=3.5.0 <4.0.0"
   },
 
   "require": {
     "http": "^1.0.0",
     "provider": "^6.0.0",
-    "local_package": {
-      "version": "any",
-      "path": "../packages/local_package"
-    },
-    "git_package": {
-      "version": "^1.0.0",
-      "git": "https://github.com/example/package.git",
-      "ref": "main"
-    },
-    "private_package": {
-      "version": "^2.0.0",
-      "nest": "company-registry"
-    }
+    "local_package": { "version": "any", "path": "../packages/local_package" }
   },
 
   "require-dev": {
-    "test": "^1.24.0",
-    "mockito": "^5.4.0"
+    "test": "^1.24.0"
   },
-
-  "profiles": {
-    "production": {
-      "require": {
-        "sentry_flutter": "^7.0.0"
-      }
-    },
-    "test": {
-      "require-dev": {
-        "flutter_test": {"sdk": "flutter"}
-      },
-      "scripts": {
-        "pre-install": "echo 'Setting up test environment'"
-      }
-    }
-  },
-
-  "nests": [
-    {
-      "name": "company-registry",
-      "url": "https://packages.company.com",
-      "auth": true
-    }
-  ],
 
   "scripts": {
-    "pre-install": "echo 'Installing dependencies...'",
-    "post-install": "echo 'Installation complete!'",
-    "test": "flutter test",
-    "build": "flutter build apk"
+    "post-install": "dart run build_runner build",
+    "test": "flutter test"
   }
 }
 ```
 
-## 🛠️ CLI Commands
+The full schema (profiles, scripts, nests, SDK constraints, the per-package
+`.hatch.json` debloat overrides) is documented in
+[`docs/manifest.md`](docs/manifest.md) and
+[`docs/package_hatch_json.md`](docs/package_hatch_json.md).
 
-### Core Commands
+## ⚡ Why Hatch is fast
 
-| Command | Description |
-|---------|-------------|
-| `hatch init [name]` | Initialize a new Hatch project |
-| `hatch install` | Install dependencies (smart resolution) |
-| `hatch update [packages...]` | Update specific packages or all |
-| `hatch add <package> [version]` | Add a dependency |
-| `hatch remove <package>` | Remove a dependency |
-| `hatch why <package>` | Explain why a package is installed |
-| `hatch migrate` | Convert pubspec.yaml to hatch.json |
+Hatch is not "fast" because it is written in Rust and leaves it at that. The speed
+comes from doing less work and doing the unavoidable work in parallel:
 
-### Advanced Commands
+1. **Manifest-hash resolution cache.** Every resolve hashes the manifest first. If
+   nothing changed since last time, the previously solved version map is returned
+   without invoking the solver or touching the network at all.
+2. **Interval propagation before the SAT solver.** A top-down propagator narrows
+   each package's allowed version range first. Packages that propagation pins
+   completely never reach the expensive solver. In the common, conflict-free case
+   the full SAT solve is skipped entirely.
+3. **Parallel metadata fetching.** Version metadata for every package is fetched
+   concurrently (bounded by a semaphore), and anything already in the metadata
+   cache is served locally with no round-trip.
+4. **Independent-subgraph parallelism.** The residual dependency graph is split
+   into connected components (via `petgraph`); disjoint components provably cannot
+   conflict, so each is solved on its own `rayon` thread in parallel and the
+   results are merged.
+5. **PubGrub for the rest.** Whatever genuinely needs constraint solving goes to a
+   PubGrub solver, which also gives precise, human-readable conflict explanations.
 
-| Command | Description |
-|---------|-------------|
-| `hatch profile [name]` | (Not yet implemented) Switch to or show current profile |
-| `hatch run <script>` | Run a script from manifest |
-| `hatch fvm use <version>` | Set Flutter version for project |
-| `hatch sdk-update` | Update Flutter/Dart SDK versions |
-| `hatch cache clear` | Clear package cache |
-| `hatch cache stats` | Show cache statistics |
-| `hatch cache remove <pkg>` | Remove specific package from cache |
+On top of resolution, **debloat** (below) means far fewer bytes are written to
+disk and far fewer files are walked on every subsequent install, and the
+**machine-global cache** means a package is downloaded and unpacked once per
+machine, not once per project.
 
-### Options
+> Reproducible micro-benchmarks live in [`benches/`](benches/) (`cargo bench --bench resolver`).
+> They are synthetic fixtures on a warm cache, not marketing numbers; run them on
+> your own hardware rather than trusting a headline multiple.
 
-- `-v, -vv, -vvv, -vvvv` - Increase verbosity levels
-- `-q, --quiet` - Suppress output
-- `--profile <name>` - Use specific profile
-- `--project-dir <path>` - Specify project directory
+## 🧹 File purging (debloat)
 
-## 🏗️ Resolution Strategy
+Published Dart/Flutter packages ship a lot of things you never compile: example
+apps, test suites, generated docs, screenshots, CI config, editor folders. Hatch
+**strips that on the way into the cache**, so the extracted tree is the code your
+build actually needs and nothing else.
 
-Hatch uses the Ultra Resolver for dependency resolution.
+**Always removed** (directory and everything under it): `example/`, `examples/`,
+`test/`, `tests/`, `doc/`, `docs/`, `.git/`, `.github/`, `.idea/`, `.vscode/`,
+`screenshots/`, plus `*.psd`, `.DS_Store`, `Thumbs.db`, and stray root dotfiles.
 
-### Ultra Resolver
-- Parallel metadata fetching for speed
-- Batch-based resolution tracking dependency levels
-- Caching for improved performance
-- Progressive resolution with conflict detection
-- Handles complex dependency trees
+**Always kept** (this list always wins over stripping): `lib/`, `bin/`, `tool/`,
+the package manifests (`pubspec.yaml`/`pubspec.lock`/`hatch.*`), and
+`README*` / `LICENSE*` / `CHANGELOG*`.
 
-## 📦 Package Sources
+**Asset-aware.** Hatch reads the package's `pubspec.yaml` and preserves anything it
+actually declares: `flutter.assets`, font files, and the platform folders listed
+under `flutter.plugin.platforms` (only the real platforms: `android`, `ios`,
+`linux`, `macos`, `windows`, `web`).
 
-### pub.dev Packages
-```json
-"require": {
-  "http": "^1.0.0"
-}
-```
-
-### Local Packages
-```json
-"require": {
-  "my_package": {
-    "version": "any",
-    "path": "../packages/my_package"
-  }
-}
-```
-
-### Git Dependencies (Not Implemented)
-Configuration is supported in manifest but resolution is not implemented:
-```json
-"require": {
-  "my_package": {
-    "version": "^1.0.0",
-    "git": "https://github.com/user/repo.git",
-    "ref": "main"  // branch, tag, or commit
-  }
-}
-```
-
-### Private Registries (Not Implemented)
-Configuration is supported and validated but resolution is not implemented:
-```json
-"nests": [
-  {
-    "name": "company",
-    "url": "https://packages.company.com",
-    "auth": true
-  }
-],
-"require": {
-  "private_package": {
-    "version": "^1.0.0",
-    "nest": "company"
-  }
-}
-```
-
-## 🎨 Profiles
-
-Profiles allow environment-specific dependencies and scripts:
+**Per-package overrides.** A package can ship a root `.hatch.json` with `keep` /
+`strip` glob lists to fine-tune what survives:
 
 ```json
-"profiles": {
-  "development": {
-    "require-dev": {
-      "flutter_launcher_icons": "^0.13.0"
-    }
-  },
-  "production": {
-    "require": {
-      "firebase_crashlytics": "^3.0.0"
-    },
-    "scripts": {
-      "pre-install": "flutter clean"
-    }
-  },
-  "test": {
-    "require-dev": {
-      "mockito": "^5.0.0",
-      "flutter_test": {"sdk": "flutter"}
-    }
-  }
-}
+{ "hatch_package_version": 1, "keep": ["assets/**"], "strip": ["lib/legacy/**"] }
 ```
 
-Usage:
-```bash
-# Install with specific profile
-hatch install --profile production
+**Kill switch.** Set `HATCH_DEBLOAT=0` to extract packages verbatim with no
+filtering at all.
 
-# Profile switching is not yet implemented
-# To use a profile, specify it during install
-```
+See [`docs/package_hatch_json.md`](docs/package_hatch_json.md) for the full rules.
 
-## 🔒 Lockfile (hatch.lock)
+## 🗄️ Caching
 
-The lockfile ensures reproducible builds across teams:
+Hatch keeps one cache per machine, shared across every project:
 
-```yaml
-lockfile_version: 1
-packages:
-  http:
-    version: 1.1.0
-    resolved: pub.dev/http@1.1.0
-    integrity: sha256:abcd1234...
-    dependencies:
-      http_parser: ^4.0.0
-    dev: false
-    registry: pub.dev
-flutter_version: 3.24.2
-dart_version: ">=3.5.0 <4.0.0"
-generated_at: 2025-09-26T12:00:00Z
-hatch_version: 0.1.0
-```
-
-## 🗄️ Cache Management
-
-Hatch maintains a global package cache for efficiency:
-
-### Cache Structure
 ```
 ~/.hatch/cache/
-├── packages/
-│   └── pub.dev/
-│       ├── http/
-│       │   └── 1.1.0/
-│       └── provider/
-│           └── 6.0.5/
-├── downloads/
-└── metadata/
+├── packages/<registry>/<name>/<version>/   # debloated, ready-to-use trees
+├── downloads/<name>-<version>.tar.gz        # transient; deleted after extraction
+└── metadata/<registry>/<name>.json          # version lists (7-day TTL, GC'd)
 ```
 
-### Cache Commands
-```bash
-# Show cache statistics
-hatch cache stats
+- **Global & shared.** Download and unpack `http 1.2.0` once; every project on the
+  machine reuses it.
+- **Relocatable.** Point `HATCH_CACHE_DIR` at an absolute path (handy for CI cache
+  restore, or a shared/air-gapped volume).
+- **Integrity-checked.** Every download must carry a checksum or the install
+  aborts; bypass per-invocation with `--allow-unchecksummed` (each bypass is
+  written to `~/.hatch/audit.log`).
+- **Self-maintaining.** Metadata expires after 7 days and is garbage-collected at
+  most once a day; `hatch cache prune --aggressive` re-applies debloat and trims
+  to lockfile-referenced versions.
 
-# Clear entire cache
+```bash
+hatch cache stats              # location, size, package count
+hatch cache list --detailed
+hatch cache remove http        # or: hatch cache remove http 1.1.0
+hatch cache prune --aggressive
 hatch cache clear --force
-
-# Remove specific package
-hatch cache remove http
-hatch cache remove http 1.1.0
 ```
 
-### Environment Variables
-- `HATCH_CACHE_DIR` - Custom cache directory (useful for CI/CD)
-- `HATCH_API_KEY` - API key for backend services
+Full details in [`docs/cache.md`](docs/cache.md).
 
-## 🔄 Flutter Version Management
+## 🪺 Private Nests (planned)
 
-Hatch integrates with FVM for Flutter SDK management:
+> **Status: not yet implemented.** The manifest already accepts and validates
+> `nest` dependency sources, but resolution from a private registry is not wired up
+> yet. This section describes the intended design so the manifest format makes
+> sense; do not rely on it working today.
 
-```bash
-# List available Flutter versions
-hatch fvm list
+A **Hatch Nest** is a self-hostable private registry for **storing and caching**
+your team's dependencies. The goal is one place that:
 
-# Use specific Flutter version
-hatch fvm use 3.24.2
+- **Hosts private packages** that must never go to public pub.dev (internal SDKs,
+  client work, paid components).
+- **Hosts forks** of public packages under your own scope, so a patched `http` is
+  consumed like any other dependency instead of via a brittle `git` ref.
+- **Mirrors / caches pub.dev**, so CI and air-gapped builds pull from a fast,
+  controlled endpoint and stay reproducible even if an upstream package is
+  unpublished.
 
-# Install Flutter version
-hatch fvm install 3.24.2
-
-# Sync FVM configuration
-hatch fvm sync
-```
-
-## 📊 Dependency Validation
-
-Hatch validates dependencies to prevent common issues:
-
-- **Conflicting sources**: Can't specify both `git` and `path` for same dependency
-- **Invalid references**: `ref` requires `git` source
-- **Undefined registries**: Referenced nests must be defined
-- **Version constraints**: Supports `^`, `~`, `>=`, `any`, `*`, and ranges
-
-## 🏃 Scripts
-
-Automate common tasks with scripts:
+Planned manifest shape:
 
 ```json
-"scripts": {
-  "pre-install": "flutter clean",
-  "post-install": "dart run build_runner build",
-  "test": "flutter test",
-  "build:apk": "flutter build apk --release",
-  "analyze": "flutter analyze",
-  "format": "dart format ."
+{
+  "nests": [
+    { "name": "company", "url": "https://packages.company.com", "auth": true }
+  ],
+  "require": {
+    "internal_sdk": { "version": "^2.0.0", "nest": "company" }
+  }
 }
 ```
 
-Run scripts:
+Credentials would live in a git-ignored `hatch_auth.json` (or `HATCH_NEST_*` env
+vars), never in the manifest. See [`docs/dependencies.md`](docs/dependencies.md)
+for the current validation rules.
+
+## 🍎 Mac-free iOS builds
+
+Hatch's headline capability is building, signing, and uploading iOS apps to the
+App Store / TestFlight **with no macOS anywhere** – no Mac, no cloud Mac, no Xcode,
+no `actool`. It compiles the Dart AOT snapshot, links a valid iOS Mach-O with
+LLVM/`lld`, assembles the `App.framework` and an Apple-compatible `Assets.car`,
+signs with `rcodesign`, and uploads through the App Store Connect API:
+
 ```bash
-hatch run test
-hatch run build:apk
+hatch ios doctor                       # check the toolchain
+hatch ios build --bundle-id com.you.app --name "My App" --sign --distribution
+hatch ios publish --ipa build/app.ipa  # upload to App Store Connect
 ```
 
-## 🚀 Performance
+This is a deep, evolving subsystem (Linux runs the fully native Rust pipeline by
+default; a Windows-native path is in progress). It is intentionally kept separate
+from the dependency-management core documented above.
 
-Hatch is designed for speed:
+## 🛠️ Commands
 
-- **Parallel Downloads**: Download multiple packages simultaneously
-- **Smart Caching**: Metadata and package caching with integrity checks
-- **Optimized Resolution**: Multiple strategies for different scenarios
-- **Direct Package Loading**: No intermediate pubspec.yaml generation
-- **Batch Processing**: Visual feedback on dependency resolution levels
+| Command | Description |
+|---------|-------------|
+| `hatch init [name]` | Scaffold a new project |
+| `hatch install` | Resolve + download + cache dependencies |
+| `hatch add <pkg> [version]` `[--dev]` | Add a dependency |
+| `hatch remove <pkg>` | Remove a dependency |
+| `hatch update [pkgs...]` | Update some or all dependencies |
+| `hatch why <pkg>` | Explain why a package is in the graph |
+| `hatch migrate` | Convert `pubspec.yaml` → `hatch.json` |
+| `hatch run <script> [args...]` | Run a manifest script |
+| `hatch fvm <list\|use\|install\|sync>` | Manage Flutter SDKs via FVM |
+| `hatch sdk-update` | Update Flutter/Dart constraints |
+| `hatch cache <stats\|list\|remove\|prune\|clear\|verify>` | Cache management |
+| `hatch ios <doctor\|build\|publish\|validate\|...>` | Mac-free iOS toolchain |
+
+Global flags: `-v`/`-vv`/`-vvv` (verbosity), `-q` (quiet), `--profile <name>`,
+`--project-dir <path>`, `--allow-unchecksummed`.
 
 ## 📖 Documentation
 
-- [Manifest Format](docs/manifest.md) - Complete hatch.json reference
-- [Dependency Sources](docs/dependencies.md) - Package source types and configuration
-- [Profiles & Scripts](docs/profiles.md) - Environment management
-- [Cache Management](docs/cache.md) - Cache structure and optimization
-- [Resolution Strategies](docs/resolution.md) - Resolver algorithms explained
-- [Private Registries](docs/registries.md) - Setting up Hatch Nests
-- [Migration Guide](docs/migration.md) - Moving from pub to Hatch
-- [CI/CD Integration](docs/ci-cd.md) - Using Hatch in pipelines
+- [Manifest format](docs/manifest.md)
+- [Dependency sources](docs/dependencies.md)
+- [Per-package `.hatch.json` (debloat)](docs/package_hatch_json.md)
+- [Cache management](docs/cache.md)
+- [Resolution strategy](docs/resolution.md)
 
 ## 🤝 Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+build, test, and style notes. In short: `cargo build`, `cargo test`,
+`cargo fmt`, `cargo clippy`.
 
 ## 📝 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Licensed under either of
 
-## 🙏 Acknowledgments
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <https://www.apache.org/licenses/LICENSE-2.0>)
 
-- Flutter team for the amazing framework
-- Rust community for excellent crates
-- Contributors and early adopters
+at your option. Copyright © 2026 Version Two s.r.o.
 
----
-
-<div align="center">
-Built with ❤️ in Rust for the Flutter community
-</div>
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.

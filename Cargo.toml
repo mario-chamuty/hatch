@@ -2,11 +2,13 @@
 name = "hatch"
 version = "0.1.0"
 edition = "2021"
-authors = ["Hatch Contributors"]
-description = "Next-Gen Dependency and Build Manager for Flutter"
+authors = ["Version Two s.r.o. <info@versiontwo.sk>", "Mario Chamuty"]
+description = "Fast, Rust-powered dependency and build manager for Flutter, with Mac-free iOS builds"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/hatch-dev/hatch"
-keywords = ["flutter", "dependency-management", "build-tools", "cli"]
+readme = "README.md"
+homepage = "https://github.com/mario-chamuty/hatch"
+repository = "https://github.com/mario-chamuty/hatch"
+keywords = ["flutter", "dependency-management", "build-tools", "ios", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
@@ -111,8 +113,8 @@ strip = true
 [package.metadata.winres]
 OriginalFilename = "hatch.exe"
 ProductName = "Hatch"
-FileDescription = "Next-Gen Dependency and Build Manager for Flutter"
-LegalCopyright = "Copyright © 2025"
+FileDescription = "Fast dependency and build manager for Flutter, with Mac-free iOS builds"
+LegalCopyright = "Copyright © 2026 Version Two s.r.o."
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
