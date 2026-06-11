@@ -195,6 +195,22 @@ cp -R "$FLUTTER_FW" "$APP/Frameworks/Flutter.framework"
 rm -rf "$APP/Frameworks/Flutter.framework/_CodeSignature"
 "$VTOOL" -arch arm64 -set-build-version ios "$MINOS" "$SDK_VER" -tool ld 1217 -replace \
   -output "$APP/Frameworks/Flutter.framework/Flutter" "$APP/Frameworks/Flutter.framework/Flutter" 2>/dev/null || true
+# Keep the framework's Info.plist consistent with its (vtool-raised) binary:
+# a bundle whose plist claims a LOWER MinimumOSVersion than its binary's
+# LC_BUILD_VERSION minos is rejected with ITMS-90208. Also repair the
+# bytes-repr ClangVersion wart baked into the prepared engine artifact.
+python3 - "$APP/Frameworks/Flutter.framework/Info.plist" "$MINOS" <<'PY'
+import plistlib, sys
+path, minos = sys.argv[1], sys.argv[2]
+with open(path, "rb") as f:
+    p = plistlib.load(f)
+p["MinimumOSVersion"] = minos
+cv = p.get("ClangVersion", "")
+if isinstance(cv, str) and cv.startswith("b'") and cv.endswith("'"):
+    p["ClangVersion"] = cv[2:-1]
+with open(path, "wb") as f:
+    plistlib.dump(p, f, fmt=plistlib.FMT_BINARY)
+PY
 
 # 4. native Runner shell (no plugins) -> compile + link
 echo "== 4/6 Runner (cross clang + ld64) =="
