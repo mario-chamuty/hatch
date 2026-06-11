@@ -7,6 +7,7 @@
 //! `zsign` for signing.
 
 pub mod appstore;
+pub mod assets_car;
 pub mod builder;
 pub mod config;
 pub mod exec;
