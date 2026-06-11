@@ -290,15 +290,26 @@ else
   printf '[]' > "$ASSETS_DIR/FontManifest.json"
 fi
 
-# App icon asset catalog (Assets.car) generated natively by mkcar.py - no Mac.
+# App icon asset catalog (Assets.car). The from-scratch mkcar catalog passes
+# Apple's *validation* but silently WEDGES the *processing* stage (ITMS-90596),
+# so prefer the TRANSPLANT (splice our pixels into a genuine actool container);
+# fall back to mkcar only if the transplant is unavailable/fails.
 # Xcode/actool ALSO emit the primary icons as loose PNGs at the bundle root
 # (AppIcon60x60@2x.png = the 120x120 ITMS-90022 explicitly checks for) and the
 # legacy CFBundleIcons dict alongside CFBundleIconName - replicate both.
 ICON_PLIST=""
 ICONSET="$PROJ/ios/Runner/Assets.xcassets/AppIcon.appiconset"
 if [ -d "$ICONSET" ] && command -v python3 >/dev/null 2>&1; then
-  if python3 "$ROOT/tools/mkcar.py" build "$ICONSET" "$APP/Assets.car" "$MINOS" 2>/tmp/mkcar.err; then
-    echo ">> Assets.car generated from AppIcon.appiconset (native, no actool)"
+  CAR_OK=0
+  if [ -f "$ROOT/tools/donor_appicon.car" ] \
+     && python3 "$ROOT/tools/transplant.py" "$ROOT/tools/donor_appicon.car" "$ICONSET" "$APP/Assets.car" >/tmp/mkcar.err 2>&1; then
+    echo ">> Assets.car via transplant (genuine actool container + our pixels)"
+    CAR_OK=1
+  elif python3 "$ROOT/tools/mkcar.py" build "$ICONSET" "$APP/Assets.car" "$MINOS" >>/tmp/mkcar.err 2>&1; then
+    echo ">> Assets.car via mkcar fallback (WARN: may wedge ITMS-90596 processing)"
+    CAR_OK=1
+  fi
+  if [ "$CAR_OK" = 1 ]; then
     cp "$ICONSET/Icon-App-60x60@2x.png" "$APP/AppIcon60x60@2x.png" 2>/dev/null \
       && echo ">> AppIcon60x60@2x.png (120x120) emitted at bundle root"
     ICON_PLIST="  <key>CFBundleIconName</key><string>AppIcon</string>

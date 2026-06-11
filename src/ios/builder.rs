@@ -36,6 +36,10 @@ pub struct BuildOutput {
 
 const PIPELINE: &str = include_str!("pipeline.sh");
 const MKCAR: &str = include_str!("tools/mkcar.py");
+const TRANSPLANT: &str = include_str!("tools/transplant.py");
+// Genuine actool catalog container (Kazumi, CoreUI 918) the transplant splices
+// our icon pixels into - the proven-VALID Assets.car path (App Store build 41).
+const DONOR: &[u8] = include_bytes!("assets/donor_appicon.car");
 
 /// Expand a configured toolchain root (`$HOME/iospoc`, `~/iospoc`) to a real
 /// filesystem path for the native pipeline. The bash path leaves expansion to
@@ -76,15 +80,27 @@ pub fn build(runner: &Runner, tc: &Toolchain, req: &BuildRequest) -> Result<Buil
 
     let sdk = tc.ios_sdk()?;
 
-    // Ship the native Assets.car writer into the build environment.
+    // Ship the Assets.car tooling into the build environment: mkcar.py (writer),
+    // transplant.py (splices our pixels into a genuine actool container - the
+    // proven-VALID path), and the donor catalog it needs. The donor is ~1.7 MB,
+    // so it is written only when missing or size-mismatched.
     let setup = format!(
-        "mkdir -p \"{root}/tools\"\nprintf '%s' '{b64}' | base64 -d > \"{root}/tools/mkcar.py\"\n",
+        "mkdir -p \"{root}/tools\"\n\
+         printf '%s' '{mkcar}' | base64 -d > \"{root}/tools/mkcar.py\"\n\
+         printf '%s' '{transplant}' | base64 -d > \"{root}/tools/transplant.py\"\n\
+         DONOR=\"{root}/tools/donor_appicon.car\"\n\
+         if [ ! -f \"$DONOR\" ] || [ \"$(stat -c%s \"$DONOR\" 2>/dev/null || echo 0)\" != \"{donor_len}\" ]; then\n\
+           printf '%s' '{donor}' | base64 -d > \"$DONOR\"\n\
+         fi\n",
         root = tc.root,
-        b64 = STANDARD.encode(MKCAR),
+        mkcar = STANDARD.encode(MKCAR),
+        transplant = STANDARD.encode(TRANSPLANT),
+        donor = STANDARD.encode(DONOR),
+        donor_len = DONOR.len(),
     );
     runner
         .exec(&setup)
-        .context("installing mkcar.py")?
+        .context("installing Assets.car tooling")?
         .require()?;
     let safe: String = req
         .app_name
