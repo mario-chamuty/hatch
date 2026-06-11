@@ -254,6 +254,7 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
 
     // 2. metadata
     let app_name = name
+        .or_else(|| read_ios_app_name(&project))
         .or_else(|| read_pubspec_name(&project))
         .unwrap_or_else(|| "App".to_string());
     let bundle = bundle_id
@@ -662,6 +663,26 @@ fn read_pubspec_name(project: &Path) -> Option<String> {
     let text = std::fs::read_to_string(project.join("pubspec.yaml")).ok()?;
     let val: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
     val.get("name")?.as_str().map(|s| s.to_string())
+}
+
+/// The user-facing app name (what shows under the home-screen icon) from the
+/// project's iOS `Info.plist`: `CFBundleDisplayName`, else `CFBundleName`.
+/// Unresolved Xcode build variables (e.g. `$(PRODUCT_NAME)`) are skipped so we
+/// never name the app literally "$(PRODUCT_NAME)". Preferred over the lowercase
+/// dart package name from `pubspec.yaml` (which is often just "app").
+fn read_ios_app_name(project: &Path) -> Option<String> {
+    let plist_path = project.join("ios").join("Runner").join("Info.plist");
+    let dict = plist::Value::from_file(&plist_path).ok()?;
+    let dict = dict.as_dictionary()?;
+    for key in ["CFBundleDisplayName", "CFBundleName"] {
+        if let Some(s) = dict.get(key).and_then(|v| v.as_string()) {
+            let s = s.trim();
+            if !s.is_empty() && !s.contains("$(") {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Parse the pubspec `version: X.Y.Z+B` into the iOS pair
