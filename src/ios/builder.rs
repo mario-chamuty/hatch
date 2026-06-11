@@ -54,11 +54,22 @@ fn expand_root(root: &str) -> String {
 }
 
 pub fn build(runner: &Runner, tc: &Toolchain, req: &BuildRequest) -> Result<BuildOutput> {
-    // Opt-in native Rust orchestration (no bash/python/lzfse/mkcar). Requires a
-    // host-native toolchain - today that means Linux; the bash `pipeline.sh`
-    // path below stays the default (and the only Windows path until the
-    // Windows-native toolchain lands). See `native_pipeline`.
-    if std::env::var_os("HATCH_IOS_NATIVE").is_some() {
+    // Native Rust orchestration (no bash/python/lzfse/mkcar) is the DEFAULT on
+    // Linux - it is verified end-to-end (Assets.car byte-identical to the proven
+    // transplant; binaries pass the ITMS linker-identity/minos checks) and is
+    // strictly better than the bash path, which still emits the processing-
+    // wedging from-scratch mkcar catalog. Windows keeps the bash `pipeline.sh`
+    // (via WSL) until the Windows-native toolchain lands (it cannot exec the
+    // Linux ELF toolchain directly). Overrides: HATCH_IOS_BASH forces bash,
+    // HATCH_IOS_NATIVE forces native. See `native_pipeline`.
+    let use_native = if std::env::var_os("HATCH_IOS_BASH").is_some() {
+        false
+    } else if std::env::var_os("HATCH_IOS_NATIVE").is_some() {
+        true
+    } else {
+        !cfg!(windows)
+    };
+    if use_native {
         let root = expand_root(&tc.root);
         return super::native_pipeline::build(req, &root);
     }
