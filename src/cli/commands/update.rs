@@ -182,7 +182,6 @@ async fn get_latest_matching_version(
     // Parse the current constraint to understand what type it is
     if current_constraint.starts_with("^") {
         // Caret constraint - get latest compatible version
-        let base_version = current_constraint.trim_start_matches('^');
         let metadata = registry.get_package_metadata(package).await?;
 
         // Get latest version that's compatible
@@ -190,7 +189,6 @@ async fn get_latest_matching_version(
         Ok(format!("^{}", latest))
     } else if current_constraint.starts_with("~") {
         // Tilde constraint - get latest patch version
-        let base_version = current_constraint.trim_start_matches('~');
         let metadata = registry.get_package_metadata(package).await?;
 
         // Get latest compatible patch version
