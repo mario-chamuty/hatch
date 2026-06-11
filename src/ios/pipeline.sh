@@ -81,7 +81,10 @@ OUT="$ROOT/out"
 APP="$OUT/Payload/Runner.app"
 
 rm -rf "$WORK" "$OUT"
-mkdir -p "$WORK" "$APP/Frameworks/App.framework" "$APP/flutter_assets"
+# flutter_assets lives INSIDE App.framework - FlutterDartProject resolves the
+# asset path via the io.flutter.flutter.app bundle, exactly like a real
+# Xcode-built Flutter app (App.framework/flutter_assets).
+mkdir -p "$WORK" "$APP/Frameworks/App.framework/flutter_assets"
 
 # 1. main.dart + package_config -> AOT kernel
 if [ ! -f "$PROJ/.dart_tool/package_config.json" ]; then
@@ -212,8 +215,16 @@ OBJC
 cat > "$WORK/Runner/AppDelegate.m" <<'OBJC'
 #import "AppDelegate.h"
 @implementation AppDelegate
+// No storyboard in a Mac-free build (storyboards need ibtool), so create the
+// window + FlutterViewController in code - the equivalent of what Flutter's
+// Main.storyboard does in an Xcode build.
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+  self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+  FlutterViewController *flutterViewController =
+      [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
+  self.window.rootViewController = flutterViewController;
+  [self.window makeKeyAndVisible];
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
 @end
@@ -254,14 +265,14 @@ echo "== 5/6 bundle assets + Assets.car + Info.plist =="
 # resolves <Flutter/Flutter.h> against the embedded framework's Headers.)
 rm -rf "$APP/Frameworks/Flutter.framework/Headers" \
        "$APP/Frameworks/Flutter.framework/Modules"
+ASSETS_DIR="$APP/Frameworks/App.framework/flutter_assets"
 if [ -d "$PROJ/build/flutter_assets" ]; then
-  cp -R "$PROJ/build/flutter_assets/." "$APP/flutter_assets/"
-  rm -f "$APP/flutter_assets/kernel_blob.bin"
+  cp -R "$PROJ/build/flutter_assets/." "$ASSETS_DIR/"
+  rm -f "$ASSETS_DIR/kernel_blob.bin"
 else
-  printf '{}' > "$APP/flutter_assets/AssetManifest.json"
-  printf '[]' > "$APP/flutter_assets/FontManifest.json"
+  printf '{}' > "$ASSETS_DIR/AssetManifest.json"
+  printf '[]' > "$ASSETS_DIR/FontManifest.json"
 fi
-cp "$FLUTTER_FW/icudtl.dat" "$APP/flutter_assets/" 2>/dev/null || true
 
 # App icon asset catalog (Assets.car) generated natively by mkcar.py - no Mac.
 # Xcode/actool ALSO emit the primary icons as loose PNGs at the bundle root
