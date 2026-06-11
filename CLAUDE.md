@@ -39,20 +39,31 @@ submit for distribution") with ZERO macOS involvement. The winning combination:
   CFBundleIconName; flutter_assets INSIDE App.framework; FlutterViewController
   created in code (no storyboard).
 
-## TECH DEBT: productize the Assets.car path, then port to Rust
+## NATIVE RUST REWRITE (2026-06-11): Linux-standalone DONE, Windows in progress
 
-1. **Integrate the transplant into `pipeline.sh`** (currently a manual
-   post-build swap+re-sign via `temp/swap_resign.sh`) so `hatch ios build
-   --sign` emits the accepted catalog directly. The donor `.car` should ship
-   as an embedded template (flutter_launcher_icons always emits the same
-   25-entry iconset, so donor rects always match).
-2. **Fix `src/ios/tools/mkcar.py`'s BOM container to byte-parity** with
-   genuine output (block-table over-allocation + free list, libbom block
-   ordering) so the from-scratch writer passes the processing stage too -
-   builds 35-39 proved renditions/trees/metadata alone are not enough.
-3. **Then port to native Rust** (`src/ios/assets_car.rs`, `image` crate +
-   an LZFSE crate), dropping the `python3`/`lzfse`-CLI runtime dependencies.
-   Do not consider the icon work fully "done" until this port is complete.
+The bash `pipeline.sh` + python `mkcar.py`/`transplant.py` + `lzfse` CLI have
+been ported to **native Rust** (`src/ios/{exec,macho,fixups,assets_car,
+native_pipeline}.rs`). `builder::build` now runs the native pipeline by DEFAULT
+on Linux (verified: Assets.car byte-identical to the proven transplant; binaries
+pass the linker-identity/minos checks) and the bash `pipeline.sh` on Windows
+(env overrides `HATCH_IOS_BASH` / `HATCH_IOS_NATIVE`). See the
+`native-rust-ios-pipeline-rewrite` memory.
+
+- ✅ Transplant integrated: `native_pipeline` stage 5 emits the proven catalog
+  directly via `assets_car::transplant` (donor embedded at
+  `src/ios/assets/donor_appicon.car`). No more manual `swap_resign.sh`.
+- ✅ Ported to Rust: `assets_car.rs` (image + `lzfse` FFI crate, byte-identical
+  to the `lzfse` CLI), dropping the `python3`/`lzfse`-CLI runtime deps on the
+  native path. `mkcar.py`'s from-scratch BOM-container parity (old item 2) is
+  now MOOT - the transplant is the productized path.
+- The bash `pipeline.sh` + `mkcar.py` remain only as the Windows fallback until
+  the Windows-native toolchain lands.
+
+**Remaining (Windows-native, no WSL):** Windows `gen_snapshot.exe` is sourced +
+proven (Flutter `android-arm64-release/windows-x64.zip` runs natively, emits
+arm64 asm identical in form to the Linux one). Still TODO: official LLVM-Windows
+(clang/lld targeting arm64-apple-ios), iPhoneOS SDK on NTFS, host-aware
+`Tools::resolve`, and a native port of `signing.rs`.
 
 ## CAR format reference catalogs + spec (`temp/`)
 
