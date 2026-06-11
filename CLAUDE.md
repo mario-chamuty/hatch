@@ -17,22 +17,42 @@ App Store / TestFlight) **without ever touching a Mac**. This is non-negotiable.
 - "It needs a Mac" is never an acceptable conclusion. Keep finding the Mac-free
   way.
 
-## TECH DEBT: port `mkcar.py` (Assets.car writer) to native Rust
+## ✅ MILESTONE (2026-06-11): build 41 VALID in TestFlight — fully Mac-free
 
-`src/ios/tools/mkcar.py` is a Python reverse-engineering scratchpad that is
-currently embedded into the binary (`include_str!`) and shelled out through
-`python3` (plus the `lzfse` CLI) inside `pipeline.sh`. This is a **temporary**
-arrangement so we can iterate on the CAR/BOM/LZFSE format against Apple's
-ingestion. It adds `python3` + `lzfse`-CLI runtime dependencies to the build
-environment and violates the "implement in Rust" standard.
+ScamNemesis 1.0.0 (41) completed App Store processing ("use for TestFlight or
+submit for distribution") with ZERO macOS involvement. The winning combination:
 
-**Once the Assets.car is CONFIRMED accepted by App Store ingestion (ITMS-90596
-clears), the implementation MUST be moved to native Rust** — a proper module
-(e.g. `src/ios/assets_car.rs`) using the existing `image` crate for PNG decode
-and an LZFSE crate (`lzfse` 0.2 FFI to Apple's reference C, or `lzfse_rust`)
-for compression, generating the `.car` bytes in-process and dropping the
-`python3`/`lzfse`-CLI steps from `pipeline.sh`. Do not consider the icon work
-"done" until this port is complete.
+- Binary: Linux `gen_snapshot --snapshot_kind=app-aot-assembly` → clang+ld64.lld
+  App.framework; Runner lld-linked; `fix_linker_identity` (tool 4→3 +
+  LC_SOURCE_VERSION) on both. Cleared ITMS-90125/90999.
+- Signing: rcodesign (NOT zsign - ITMS-90034). Upload: bare iris API.
+- **Assets.car: the TRANSPLANT path** - `temp/transplant.py` splices our icon
+  pixels into a GENUINE actool catalog container (donor:
+  `temp/reference_kazumi_flutter_918.car`); applied post-build by
+  `temp/swap_resign.sh`. Critical lesson: mkcar's from-scratch BOM container
+  passes Apple's *validation* (no ITMS error) but silently WEDGES the
+  *processing* stage forever (builds 35-39) - never trust validation-passing
+  alone.
+- Flutter.framework Info.plist MinimumOSVersion must match the vtool-raised
+  binary minos or processing fails ITMS-90208 (pipeline patches it now).
+- Bundle parity: loose AppIcon60x60@2x.png + CFBundleIcons dict + PkgInfo +
+  CFBundleIconName; flutter_assets INSIDE App.framework; FlutterViewController
+  created in code (no storyboard).
+
+## TECH DEBT: productize the Assets.car path, then port to Rust
+
+1. **Integrate the transplant into `pipeline.sh`** (currently a manual
+   post-build swap+re-sign via `temp/swap_resign.sh`) so `hatch ios build
+   --sign` emits the accepted catalog directly. The donor `.car` should ship
+   as an embedded template (flutter_launcher_icons always emits the same
+   25-entry iconset, so donor rects always match).
+2. **Fix `src/ios/tools/mkcar.py`'s BOM container to byte-parity** with
+   genuine output (block-table over-allocation + free list, libbom block
+   ordering) so the from-scratch writer passes the processing stage too -
+   builds 35-39 proved renditions/trees/metadata alone are not enough.
+3. **Then port to native Rust** (`src/ios/assets_car.rs`, `image` crate +
+   an LZFSE crate), dropping the `python3`/`lzfse`-CLI runtime dependencies.
+   Do not consider the icon work fully "done" until this port is complete.
 
 ## CAR format reference catalogs + spec (`temp/`)
 
