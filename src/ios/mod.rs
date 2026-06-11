@@ -9,6 +9,9 @@
 pub mod appstore;
 pub mod builder;
 pub mod config;
+pub mod exec;
+pub mod fixups;
+pub mod macho;
 pub mod runner;
 pub mod signing;
 pub mod toolchain;
