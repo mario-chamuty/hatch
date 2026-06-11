@@ -37,7 +37,32 @@ pub struct BuildOutput {
 const PIPELINE: &str = include_str!("pipeline.sh");
 const MKCAR: &str = include_str!("tools/mkcar.py");
 
+/// Expand a configured toolchain root (`$HOME/iospoc`, `~/iospoc`) to a real
+/// filesystem path for the native pipeline. The bash path leaves expansion to
+/// the shell; the native path has no shell.
+fn expand_root(root: &str) -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    if let Some(rest) = root.strip_prefix("$HOME") {
+        format!("{home}{rest}")
+    } else if let Some(rest) = root.strip_prefix('~') {
+        format!("{home}{rest}")
+    } else {
+        root.to_string()
+    }
+}
+
 pub fn build(runner: &Runner, tc: &Toolchain, req: &BuildRequest) -> Result<BuildOutput> {
+    // Opt-in native Rust orchestration (no bash/python/lzfse/mkcar). Requires a
+    // host-native toolchain - today that means Linux; the bash `pipeline.sh`
+    // path below stays the default (and the only Windows path until the
+    // Windows-native toolchain lands). See `native_pipeline`.
+    if std::env::var_os("HATCH_IOS_NATIVE").is_some() {
+        let root = expand_root(&tc.root);
+        return super::native_pipeline::build(req, &root);
+    }
+
     let sdk = tc.ios_sdk()?;
 
     // Ship the native Assets.car writer into the build environment.

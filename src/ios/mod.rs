@@ -13,6 +13,7 @@ pub mod config;
 pub mod exec;
 pub mod fixups;
 pub mod macho;
+pub mod native_pipeline;
 pub mod runner;
 pub mod signing;
 pub mod toolchain;
