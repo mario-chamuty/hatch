@@ -124,15 +124,24 @@ PY
 # Apple rejects (ITMS-90125: "encryption info ... missing" + "not built with
 # Apple's linker"). Linking yields LC_ENCRYPTION_INFO_64 + chained fixups +
 # exports trie, and --strip removes the rwx __DWARF segment (ITMS-90999) with no
-# post-patch. The Linux gen_snapshot emits ELF-style assembly, so we convert its
-# few ELF-only directives to Mach-O equivalents before assembling.
+# post-patch.
+#
+# The gen_snapshot here is the iOS-target build (dart_target_os_override=ios; see
+# .local/ios-runtime-findings.md): it emits native Mach-O assembly AND stamps the
+# snapshot feature flags "arm64 ios no-compressed-pointers" that Flutter.framework
+# requires at launch (an android/compressed-pointers gen_snapshot links + passes
+# App Store *processing* but aborts in Dart_Initialize on the device). The sed
+# below is a defensive no-op on Mach-O input (no .size/.type/.rodata/GNU-stack to
+# rewrite); it only does real work if an ELF-emitting (android) gen_snapshot is
+# ever swapped back in.
 echo "== 2/6 gen_snapshot -> assembly -> App.framework (linked) =="
 APPFW="$APP/Frameworks/App.framework/App"
 if [ -n "$LLD" ]; then
   "$GS" --snapshot_kind=app-aot-assembly --strip \
     --assembly="$WORK/snapshot.S" "$WORK/app.aot.dill"
-  # ELF -> Mach-O: drop .size/.type (ELF symbol metadata) and the GNU-stack note,
-  # and map the read-only .rodata section to .const (__TEXT,__const).
+  # ELF -> Mach-O fallback (no-op when gen_snapshot already emits Mach-O): drop
+  # .size/.type (ELF symbol metadata) and the GNU-stack note, and map the
+  # read-only .rodata section to .const (__TEXT,__const).
   sed -E \
     -e '/^[[:space:]]*\.(size|type)\b/d' \
     -e '/^[[:space:]]*\.section[[:space:]]+\.note\.GNU-stack/d' \
