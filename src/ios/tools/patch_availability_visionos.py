@@ -12,8 +12,11 @@ target only cares about the ios() clause, so semantics are unaffected.
 Idempotent."""
 import sys, os
 
-A = sys.argv[1] if len(sys.argv) > 1 else (
-    r"C:\Users\mario\iospoc-win\iossdk\iPhoneOS16.5.sdk\usr\include\AvailabilityInternal.h")
+# argv[1] is the SDK root (consistent with the other patch scripts); the file we
+# patch is <SDK>/usr/include/AvailabilityInternal.h. A direct .h path also works.
+_arg = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\mario\iospoc-win\iossdk\iPhoneOS16.5.sdk"
+A = _arg if _arg.lower().endswith("availabilityinternal.h") else \
+    os.path.join(_arg, "usr", "include", "AvailabilityInternal.h")
 
 # (anchor line, lines to insert after it)
 ADDS = [
