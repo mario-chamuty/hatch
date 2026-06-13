@@ -271,8 +271,18 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
 
     // 4. build
     let (short_version, build_number) = read_pubspec_version(&project);
+    // The native Rust pipeline (default on Linux, HATCH_IOS_NATIVE on Windows)
+    // consumes real host paths (forward-slash Windows paths on Windows); only the
+    // WSL bash pipeline needs the /mnt drvfs translation from to_build_path.
+    let use_native_build = std::env::var_os("HATCH_IOS_BASH").is_none()
+        && (std::env::var_os("HATCH_IOS_NATIVE").is_some() || !cfg!(windows));
+    let project_dir = if use_native_build && cfg!(windows) {
+        project.to_string_lossy().replace('\\', "/")
+    } else {
+        to_build_path(&project.to_string_lossy())
+    };
     let req = BuildRequest {
-        project_dir: to_build_path(&project.to_string_lossy()),
+        project_dir,
         app_name: app_name.clone(),
         bundle_id: bundle.clone(),
         // 13.4 is the floor for LC_DYLD_CHAINED_FIXUPS (emitted by ld64.lld).
@@ -293,10 +303,24 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
             "no provisioning profile configured. Run `hatch ios profile-create`.",
         )?;
         let pw = mat.p12_password.as_deref().unwrap_or("");
-        let signed = format!("{}/out/{}-signed.ipa", tc.root, sanitize(&app_name));
         println!("✍️  Signing with rcodesign…");
-        signing::sign_ipa(&runner, &tc.root, &out.ipa_path, p12, pw, profile, &signed)?;
-        signed
+        if use_native_build {
+            // Native rcodesign (no WSL): out.ipa_path is already a real host path
+            // ({root}/out/<App>.ipa); sign alongside it, drive rcodesign.exe from
+            // the toolchain root's rcodesign029/.
+            let signed = format!("{}-signed.ipa", out.ipa_path.trim_end_matches(".ipa"));
+            let root_exp = std::path::Path::new(&out.ipa_path).parent().and_then(|p| p.parent())
+                .context("resolving toolchain root from ipa path")?;
+            let rcodesign = root_exp.join("rcodesign029").join("rcodesign.exe");
+            let rcodesign = if rcodesign.exists() { rcodesign }
+                else { root_exp.join("rcodesign").join("rcodesign.exe") };
+            signing::sign_ipa_native(&rcodesign.to_string_lossy(), &out.ipa_path, p12, pw, profile, &signed)?;
+            signed
+        } else {
+            let signed = format!("{}/out/{}-signed.ipa", tc.root, sanitize(&app_name));
+            signing::sign_ipa(&runner, &tc.root, &out.ipa_path, p12, pw, profile, &signed)?;
+            signed
+        }
     } else {
         out.ipa_path.clone()
     };
@@ -309,10 +333,15 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
         sanitize(&app_name),
         if sign { "-signed" } else { "" }
     ));
-    let dest_build = to_build_path(&dest.to_string_lossy());
-    runner
-        .exec(&format!("cp \"{}\" \"{}\"", final_build_path, dest_build))?
-        .require()?;
+    if use_native_build {
+        std::fs::copy(&final_build_path, &dest)
+            .with_context(|| format!("copying {final_build_path} -> {}", dest.display()))?;
+    } else {
+        let dest_build = to_build_path(&dest.to_string_lossy());
+        runner
+            .exec(&format!("cp \"{}\" \"{}\"", final_build_path, dest_build))?
+            .require()?;
+    }
 
     println!("\n✅ {} IPA: {}", if sign { "Signed" } else { "Unsigned" }, dest.display());
     if !sign {

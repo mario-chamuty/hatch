@@ -132,7 +132,10 @@ pub fn build(req: &BuildRequest, root: &str) -> Result<BuildOutput> {
     stage1_aot_kernel(&t, req, &work)?;
     stage2_app_framework(&t, &work, &app, minos)?;
     stage3_flutter_framework(&t, &app, minos)?;
-    stage4_runner(&t, &work, &app, minos)?;
+    // Compile native plugin sources (Swift/ObjC) before the Runner link so the
+    // Runner can register + link them. Returns Plugins::none for plugin-less apps.
+    let plugins = super::plugins::compile(&req.project_dir, &t.sdk, root, &work)?;
+    stage4_runner(&t, req, &work, &app, minos, &plugins)?;
     let icon_plist = stage5_assets(&t, req, &app, &assets_dir)?;
     stage5_info_plist(req, &app, minos, &icon_plist)?;
     let ipa_path = stage6_package(&out, &safe)?;
@@ -272,13 +275,20 @@ fn stage3_flutter_framework(t: &Tools, app: &str, minos: &str) -> Result<()> {
 
 // --- stage 4 -------------------------------------------------------------
 
-fn stage4_runner(t: &Tools, work: &str, app: &str, minos: &str) -> Result<()> {
+fn stage4_runner(
+    t: &Tools, req: &BuildRequest, work: &str, app: &str, minos: &str,
+    plugins: &super::plugins::Plugins,
+) -> Result<()> {
     println!("== 4/6 Runner (cross clang + ld64) ==");
     let rdir = format!("{work}/Runner");
     fs::create_dir_all(&rdir)?;
     fs::write(format!("{rdir}/main.m"), RUNNER_MAIN_M)?;
     fs::write(format!("{rdir}/AppDelegate.h"), RUNNER_APPDELEGATE_H)?;
-    fs::write(format!("{rdir}/AppDelegate.m"), RUNNER_APPDELEGATE_M)?;
+    // With plugins the AppDelegate additionally calls GeneratedPluginRegistrant
+    // (after the FlutterViewController is the window's rootVC, so FlutterAppDelegate
+    // routes each registrar to the running engine's messenger).
+    fs::write(format!("{rdir}/AppDelegate.m"),
+        if plugins.has { RUNNER_APPDELEGATE_PLUGINS_M } else { RUNNER_APPDELEGATE_M })?;
 
     let frameworks = format!("{app}/Frameworks");
     let headers = format!("{}/Headers", t.flutter_fw);
@@ -294,26 +304,93 @@ fn stage4_runner(t: &Tools, work: &str, app: &str, minos: &str) -> Result<()> {
         "-fobjc-arc".into(), "-fmodules".into(),
         format!("-I{headers}"), format!("-F{frameworks}"),
     ]);
-    for (src, obj) in [("main.m", "main.o"), ("AppDelegate.m", "AppDelegate.o")] {
-        let mut a: Vec<String> = cflags.clone();
-        a.extend(["-c".into(), format!("{rdir}/{src}"), "-o".into(), format!("{work}/{obj}")]);
-        run_clang(t, "compile Runner", &str_refs(&a))?;
+
+    // Plugin-aware compile flags for AppDelegate + the GeneratedPluginRegistrant:
+    // staged public headers (-I inc), clang module maps (Swift plugins), the real
+    // per-plugin header dirs, the ObjC prefix header, and the firebase -F.
+    let mut plugin_cflags: Vec<String> = vec![];
+    let mut objs: Vec<String> = vec![format!("{work}/main.o"), format!("{work}/AppDelegate.o")];
+    if plugins.has {
+        plugin_cflags.push("-w".into());
+        plugin_cflags.push(format!("-fmodules-cache-path={work}/cmc_runner"));
+        plugin_cflags.push(format!("-include")); plugin_cflags.push(plugins.prefix_h.clone());
+        plugin_cflags.push(format!("-I{}", plugins.inc_dir));
+        plugin_cflags.push(format!("-I{}", plugins.mod_dir));
+        plugin_cflags.push(format!("-I{}/ios/Runner", req.project_dir)); // GeneratedPluginRegistrant.h
+        for d in &plugins.include_dirs { plugin_cflags.push(format!("-I{d}")); }
+        plugin_cflags.extend(plugins.swift_modmaps.clone());
+        if !plugins.fb_dir.is_empty() { plugin_cflags.push(format!("-F{}", plugins.fb_dir)); }
+        // resource-dir for the clang module compiles (Swift -Swift.h umbrella etc.)
+        // is implicit via the toolchain clang; nothing extra needed.
+    }
+
+    // main.m (no plugin headers needed); AppDelegate.m + registrant.m (plugin headers).
+    {
+        let mut a = cflags.clone();
+        a.extend(["-c".into(), format!("{rdir}/main.m"), "-o".into(), format!("{work}/main.o")]);
+        run_clang(t, "compile Runner main", &str_refs(&a))?;
+    }
+    {
+        let mut a = cflags.clone();
+        a.extend(plugin_cflags.clone());
+        a.extend(["-c".into(), format!("{rdir}/AppDelegate.m"), "-o".into(), format!("{work}/AppDelegate.o")]);
+        run_clang(t, "compile Runner AppDelegate", &str_refs(&a))?;
+    }
+    if plugins.has {
+        let reg = format!("{}/ios/Runner/GeneratedPluginRegistrant.m", req.project_dir);
+        if Path::new(&reg).exists() {
+            let regdir = format!("{}/ios/Runner", req.project_dir);
+            let mut a = cflags.clone();
+            a.extend(plugin_cflags.clone());
+            a.push(format!("-I{regdir}"));
+            a.extend(["-c".into(), reg, "-o".into(), format!("{work}/registrant.o")]);
+            run_clang(t, "compile GeneratedPluginRegistrant", &str_refs(&a))?;
+            objs.push(format!("{work}/registrant.o"));
+        } else {
+            bail!("plugins present but no GeneratedPluginRegistrant.m at {reg}");
+        }
+        objs.extend(plugins.objects.clone());
+    }
+
+    // Plugin link flags: firebase -F, swift runtime stubs (SDK), genuine compat
+    // .a + clang_rt force-loaded, plus -lc++/-lz/-lsqlite3 the plugins use.
+    let mut plugin_link: Vec<String> = vec![];
+    if plugins.has {
+        if !plugins.fb_dir.is_empty() {
+            plugin_link.push("-F".into()); plugin_link.push(plugins.fb_dir.clone());
+            // @import autolink does not cover the whole static Firebase closure
+            // (FIRApp/FIRCrashlytics/FIRMessaging/GUL...); link each explicitly.
+            for fw in &plugins.fb_frameworks {
+                plugin_link.push("-framework".into()); plugin_link.push(fw.clone());
+            }
+        }
+        plugin_link.extend([
+            "-lc++".into(), "-lz".into(), "-lsqlite3".into(),
+            "-L".into(), format!("{}/usr/lib/swift", t.sdk),
+            "-L".into(), super::plugins::compat_lib_dir(),
+            "-L".into(), super::plugins::clang_rt_dir(), "-lclang_rt.ios".into(),
+            "-Xlinker".into(), "-rpath".into(), "-Xlinker".into(), "/usr/lib/swift".into(),
+        ]);
     }
 
     let runner_bin = format!("{app}/Runner");
-    let main_o = format!("{work}/main.o");
-    let appdel_o = format!("{work}/AppDelegate.o");
     if let Some(lld) = &t.lld {
-        println!(">> linking Runner with ld64.lld (chained fixups, sdk {SDK_VER})");
+        println!(">> linking Runner with ld64.lld (chained fixups, sdk {SDK_VER}){}",
+            if plugins.has { format!(", +{} plugin objects", plugins.objects.len()) } else { String::new() });
         let mut a = t.arch.clone();
         a.extend([
             "-isysroot".into(), t.sdk.clone(),
             format!("-fuse-ld={lld}"), "-Wl,-fixup_chains".into(),
             format!("-Wl,-platform_version,ios,{minos},{SDK_VER}"),
-            main_o.clone(), appdel_o.clone(),
+        ]);
+        a.extend(objs.clone());
+        a.extend([
             "-F".into(), frameworks.clone(),
             "-framework".into(), "Flutter".into(), "-framework".into(), "UIKit".into(),
             "-framework".into(), "Foundation".into(),
+        ]);
+        a.extend(plugin_link.clone());
+        a.extend([
             "-Xlinker".into(), "-rpath".into(), "-Xlinker".into(),
             "@executable_path/Frameworks".into(), "-o".into(), runner_bin.clone(),
         ]);
@@ -323,10 +400,15 @@ fn stage4_runner(t: &Tools, work: &str, app: &str, minos: &str) -> Result<()> {
         let mut a = t.arch.clone();
         a.extend([
             "-isysroot".into(), t.sdk.clone(), format!("-miphoneos-version-min={minos}"),
-            main_o.clone(), appdel_o.clone(),
+        ]);
+        a.extend(objs.clone());
+        a.extend([
             "-F".into(), frameworks.clone(),
             "-framework".into(), "Flutter".into(), "-framework".into(), "UIKit".into(),
             "-framework".into(), "Foundation".into(),
+        ]);
+        a.extend(plugin_link.clone());
+        a.extend([
             "-Xlinker".into(), "-rpath".into(), "-Xlinker".into(),
             "@executable_path/Frameworks".into(), "-o".into(), runner_bin.clone(),
         ]);
@@ -390,11 +472,90 @@ fn stage5_assets(t: &Tools, req: &BuildRequest, app: &str, assets_dir: &str) -> 
 }
 
 fn stage5_info_plist(req: &BuildRequest, app: &str, minos: &str, icon_plist: &str) -> Result<()> {
-    let plist = info_plist(
+    let generated = info_plist(
         &req.bundle_id, &req.app_name, &req.short_version, &req.build_number, minos, icon_plist,
     );
-    fs::write(format!("{app}/Info.plist"), plist)?;
+    let dst = format!("{app}/Info.plist");
+    // Merge the app's real ios/Runner/Info.plist (usage descriptions, query
+    // schemes, background modes, ATS, launch screen, etc.) - required for both
+    // runtime (permission plugins crash without purpose strings) and App Store
+    // ingestion (ITMS-90683). hatch's structural keys always win; storyboard
+    // keys are dropped (we create the FlutterViewController in code).
+    let app_plist = format!("{}/ios/Runner/Info.plist", req.project_dir);
+    match merge_info_plist(&generated, &app_plist, req) {
+        Ok(merged) => { fs::write(&dst, merged)?; }
+        Err(e) => {
+            eprintln!(">> WARN: Info.plist merge failed ({e:#}); using generated plist only");
+            fs::write(&dst, generated)?;
+        }
+    }
     Ok(())
+}
+
+/// Keys hatch controls (its generated value always wins over the app's).
+const HATCH_OWNED_PLIST_KEYS: &[&str] = &[
+    "CFBundleExecutable", "CFBundleIdentifier", "CFBundleName", "CFBundleDisplayName",
+    "CFBundleVersion", "CFBundleShortVersionString", "CFBundlePackageType", "CFBundleSignature",
+    "CFBundleInfoDictionaryVersion", "CFBundleDevelopmentRegion", "MinimumOSVersion",
+    "CFBundleSupportedPlatforms", "UIRequiredDeviceCapabilities", "DTPlatformName",
+    "DTPlatformVersion", "DTSDKName", "DTSDKBuild", "DTPlatformBuild", "DTXcode", "DTXcodeBuild",
+    "DTCompiler", "BuildMachineOSBuild", "CFBundleIcons", "CFBundleIconName", "UIDeviceFamily",
+    "LSRequiresIPhoneOS",
+];
+/// Storyboard keys dropped (hatch builds the FlutterViewController in code).
+const DROP_PLIST_KEYS: &[&str] = &["UIMainStoryboardFile", "UILaunchStoryboardName"];
+
+fn merge_info_plist(generated: &str, app_plist_path: &str, req: &BuildRequest) -> Result<Vec<u8>> {
+    use plist::Value;
+    let mut base = Value::from_reader_xml(std::io::Cursor::new(generated.as_bytes()))
+        .context("parsing generated plist")?;
+    let base_dict = base.as_dictionary_mut().context("generated plist is not a dict")?;
+    if !Path::new(app_plist_path).exists() {
+        // no app plist - just re-serialize the generated dict
+        let mut buf = Vec::new();
+        plist::to_writer_xml(&mut buf, &base)?;
+        return Ok(buf);
+    }
+    let app_val = Value::from_file(app_plist_path)
+        .with_context(|| format!("parsing {app_plist_path}"))?;
+    let app_dict = app_val.as_dictionary().context("app plist is not a dict")?;
+    // Xcode build-setting substitutions (Mac-free; no xcodebuild to expand them).
+    let subs: Vec<(&str, &str)> = vec![
+        ("$(PRODUCT_NAME)", &req.app_name),
+        ("${PRODUCT_NAME}", &req.app_name),
+        ("$(FLUTTER_BUILD_NAME)", &req.short_version),
+        ("$(FLUTTER_BUILD_NUMBER)", &req.build_number),
+        ("$(PRODUCT_BUNDLE_IDENTIFIER)", &req.bundle_id),
+        ("$(DEVELOPMENT_LANGUAGE)", "en"),
+        ("$(EXECUTABLE_NAME)", "Runner"),
+        ("$(PRODUCT_BUNDLE_PACKAGE_TYPE)", "APPL"),
+    ];
+    for (k, v) in app_dict {
+        if HATCH_OWNED_PLIST_KEYS.contains(&k.as_str()) || DROP_PLIST_KEYS.contains(&k.as_str()) {
+            continue;
+        }
+        let mut v = v.clone();
+        subst_plist(&mut v, &subs);
+        base_dict.insert(k.clone(), v);
+    }
+    let mut buf = Vec::new();
+    plist::to_writer_xml(&mut buf, &base)?;
+    Ok(buf)
+}
+
+/// Recursively apply `$(VAR)` string substitutions throughout a plist value.
+fn subst_plist(v: &mut plist::Value, subs: &[(&str, &str)]) {
+    use plist::Value;
+    match v {
+        Value::String(s) => {
+            for (from, to) in subs {
+                if s.contains(from) { *s = s.replace(from, to); }
+            }
+        }
+        Value::Array(a) => for x in a.iter_mut() { subst_plist(x, subs); },
+        Value::Dictionary(d) => for (_, x) in d.iter_mut() { subst_plist(x, subs); },
+        _ => {}
+    }
 }
 
 // --- stage 6 -------------------------------------------------------------
@@ -632,6 +793,25 @@ const RUNNER_APPDELEGATE_M: &str = r#"#import "AppDelegate.h"
       [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
   self.window.rootViewController = flutterViewController;
   [self.window makeKeyAndVisible];
+  return [super application:application didFinishLaunchingWithOptions:launchOptions];
+}
+@end
+"#;
+
+// AppDelegate that registers the Flutter plugins. The FlutterViewController is
+// the window's rootViewController BEFORE registration, so FlutterAppDelegate's
+// plugin registry routes each plugin's registrar to that engine's messenger.
+const RUNNER_APPDELEGATE_PLUGINS_M: &str = r#"#import "AppDelegate.h"
+#import "GeneratedPluginRegistrant.h"
+@implementation AppDelegate
+- (BOOL)application:(UIApplication *)application
+    didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+  self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+  FlutterViewController *flutterViewController =
+      [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
+  self.window.rootViewController = flutterViewController;
+  [self.window makeKeyAndVisible];
+  [GeneratedPluginRegistrant registerWithRegistry:self];
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
 @end
