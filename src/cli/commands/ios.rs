@@ -239,6 +239,33 @@ fn prompt(msg: &str) -> Result<String> {
 
 // --- build ----------------------------------------------------------------
 
+/// Locate `rcodesign.exe` directly under `dir` or one level into a versioned
+/// `apple-codesign-*` extraction subdir.
+fn find_rcodesign(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let direct = dir.join("rcodesign.exe");
+    if direct.exists() { return Some(direct); }
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        if e.path().is_dir() {
+            let nested = e.path().join("rcodesign.exe");
+            if nested.exists() { return Some(nested); }
+        }
+    }
+    None
+}
+
+/// Resolve a signing-material path: use the configured one if it exists,
+/// otherwise fall back to `<root>/signing/<basename>` (the config may carry a
+/// stale WSL path while the native build runs on Windows).
+fn win_signing_path(configured: &str, root: &std::path::Path) -> String {
+    if std::path::Path::new(configured).exists() {
+        return configured.to_string();
+    }
+    let base = std::path::Path::new(configured).file_name()
+        .map(|b| b.to_string_lossy().into_owned()).unwrap_or_default();
+    let fallback = root.join("signing").join(&base);
+    if fallback.exists() { fallback.to_string_lossy().into_owned() } else { configured.to_string() }
+}
+
 async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _distribution: bool) -> Result<()> {
     let cfg = IosConfig::load()?;
     let runner = runner_for(&cfg);
@@ -311,10 +338,16 @@ async fn build(bundle_id: Option<String>, name: Option<String>, sign: bool, _dis
             let signed = format!("{}-signed.ipa", out.ipa_path.trim_end_matches(".ipa"));
             let root_exp = std::path::Path::new(&out.ipa_path).parent().and_then(|p| p.parent())
                 .context("resolving toolchain root from ipa path")?;
-            let rcodesign = root_exp.join("rcodesign029").join("rcodesign.exe");
-            let rcodesign = if rcodesign.exists() { rcodesign }
-                else { root_exp.join("rcodesign").join("rcodesign.exe") };
-            signing::sign_ipa_native(&rcodesign.to_string_lossy(), &out.ipa_path, p12, pw, profile, &signed)?;
+            let rcodesign = std::env::var("HATCH_RCODESIGN").ok().map(std::path::PathBuf::from)
+                .filter(|p| p.exists())
+                .or_else(|| find_rcodesign(&root_exp.join("rcodesign029")))
+                .or_else(|| find_rcodesign(&root_exp.join("rcodesign")))
+                .context("rcodesign.exe not found under {root}/rcodesign029 (need apple-codesign >=0.29.0)")?;
+            // Configured signing material may use stale WSL paths; fall back to the
+            // toolchain root's signing/ dir on Windows.
+            let p12 = win_signing_path(p12, root_exp);
+            let profile = win_signing_path(profile, root_exp);
+            signing::sign_ipa_native(&rcodesign.to_string_lossy(), &out.ipa_path, &p12, pw, &profile, &signed)?;
             signed
         } else {
             let signed = format!("{}/out/{}-signed.ipa", tc.root, sanitize(&app_name));

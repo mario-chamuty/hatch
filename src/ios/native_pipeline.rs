@@ -446,6 +446,16 @@ fn stage5_assets(t: &Tools, req: &BuildRequest, app: &str, assets_dir: &str) -> 
         fs::write(format!("{assets_dir}/FontManifest.json"), "[]")?;
     }
 
+    // Firebase iOS config (the GoogleService-Info.plist counterpart of Android's
+    // google-services.json). Firebase.initializeApp uses explicit DefaultFirebaseOptions,
+    // but bundling the plist matches a standard iOS Firebase app and lets
+    // FirebaseMessaging/APNs resolve its app config at the bundle root.
+    let gsi = format!("{}/ios/Runner/GoogleService-Info.plist", req.project_dir);
+    if Path::new(&gsi).exists() {
+        fs::copy(&gsi, format!("{app}/GoogleService-Info.plist"))?;
+        println!(">> bundled GoogleService-Info.plist");
+    }
+
     // App-icon catalog: the PROVEN transplant path (genuine container + our
     // pixels), generated natively. No actool, no python, no Mac.
     let mut icon_plist = String::new();
@@ -803,15 +813,24 @@ const RUNNER_APPDELEGATE_M: &str = r#"#import "AppDelegate.h"
 // plugin registry routes each plugin's registrar to that engine's messenger.
 const RUNNER_APPDELEGATE_PLUGINS_M: &str = r#"#import "AppDelegate.h"
 #import "GeneratedPluginRegistrant.h"
-@implementation AppDelegate
+@implementation AppDelegate {
+  FlutterEngine *_engine;
+}
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+  // Explicit engine so plugin registration lands on the SAME messenger that runs
+  // the Dart entrypoint. Registering against the AppDelegate while using an
+  // implicit FlutterViewController engine puts plugin channels on a different
+  // messenger -> Firebase.initializeApp()/method channels hang -> black screen.
+  _engine = [[FlutterEngine alloc] initWithName:@"io.flutter" project:nil
+                          allowHeadlessExecution:YES];
+  [_engine run];
+  [GeneratedPluginRegistrant registerWithRegistry:_engine];
   self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
   FlutterViewController *flutterViewController =
-      [[FlutterViewController alloc] initWithProject:nil nibName:nil bundle:nil];
+      [[FlutterViewController alloc] initWithEngine:_engine nibName:nil bundle:nil];
   self.window.rootViewController = flutterViewController;
   [self.window makeKeyAndVisible];
-  [GeneratedPluginRegistrant registerWithRegistry:self];
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
 @end
