@@ -334,8 +334,16 @@ pub fn transplant(donor: &[u8], iconset_dir: &Path) -> Result<Vec<u8>> {
                 .get(&(w, h))
                 .with_context(|| format!("atlas {ak:?} rect {w}x{h}: no source pixels"))?;
             let rb = (w * 4) as usize;
+            // CoreUI atlases use a BOTTOM-LEFT origin: the KLNI `y` is the offset
+            // from the bottom of the atlas, not the top. Our `src` rows are stored
+            // top-down (PNG order), so the icon's top row lands at top-origin row
+            // `ah - y - h`. Writing at `y` directly (top-origin) makes iOS read the
+            // wrong rows and mangles the icon (top half = bottom half + a stray
+            // smaller sub-icon bleeding in). Verified against the genuine donor
+            // catalog: only `ah - y - h` reconstructs every sub-icon upright.
+            let top = (ah - y - h) as usize;
             for r in 0..h as usize {
-                let dst = (((y as usize + r) * stride_px as usize) + x as usize) * 4;
+                let dst = ((top + r) * stride_px as usize + x as usize) * 4;
                 buf[dst..dst + rb].copy_from_slice(&src[r * rb..(r + 1) * rb]);
             }
         }
