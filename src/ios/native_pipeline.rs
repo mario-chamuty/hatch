@@ -174,16 +174,40 @@ fn stage1_aot_kernel(t: &Tools, req: &BuildRequest, work: &str) -> Result<()> {
     // --output-dill is run through `Uri.file()`, which needs a native Windows
     // path (backslashes), not a forward-slash path or a file:// URI.
     let out_dill = win_native(t, &dill);
-    let args = [
-        t.fes.as_str(),
-        "--sdk-root", &sdk_root,
-        "--platform", &platform,
-        "--target=flutter", "--aot", "--tfa", "-Ddart.vm.product=true",
-        "--packages", &packages,
-        "--output-dill", &out_dill,
-        &main,
+    let mut args: Vec<String> = vec![
+        t.fes.clone(),
+        "--sdk-root".into(), sdk_root,
+        "--platform".into(), platform,
+        "--target=flutter".into(), "--aot".into(), "--tfa".into(),
+        "-Ddart.vm.product=true".into(),
+        "--packages".into(), packages,
+        "--output-dill".into(), out_dill,
     ];
-    Exec::run(&t.aotrt, args)?.require("AOT kernel (frontend_server)")?;
+    // Dart-side federated-plugin registrant. `flutter build` generates this and
+    // feeds it to the frontend so each plugin's platform implementation registers
+    // itself (e.g. PathProviderPlatform.instance = PathProviderFoundation()).
+    // Without it, federated plugins fall back to their DEFAULT MethodChannel
+    // (the legacy `plugins.flutter.io/<x>` channel) which the modern Pigeon-based
+    // native plugin does NOT implement -> MissingPluginException at runtime ->
+    // e.g. getApplicationDocumentsDirectory throws -> Hive.initFlutter() fails ->
+    // runApp() is never reached -> black screen. Wire it exactly as flutter does.
+    let registrant = format!(
+        "{}/.dart_tool/flutter_build/dart_plugin_registrant.dart",
+        req.project_dir
+    );
+    if Path::new(&registrant).exists() {
+        let reg_uri = dart_uri(t, &registrant);
+        args.push("--source".into());
+        args.push(reg_uri.clone());
+        args.push("--source".into());
+        args.push("package:flutter/src/dart_plugin_registrant.dart".into());
+        args.push(format!("-Dflutter.dart_plugin_registrant={reg_uri}"));
+    } else {
+        eprintln!(">> WARN: no dart_plugin_registrant.dart - federated plugins \
+                   may MissingPluginException at runtime (run 'fvm flutter pub get')");
+    }
+    args.push(main);
+    Exec::run(&t.aotrt, str_refs(&args))?.require("AOT kernel (frontend_server)")?;
     Ok(())
 }
 
