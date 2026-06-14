@@ -25,4 +25,4 @@ pub mod scripts;
 pub mod branding;
 pub mod auth;
 pub mod git;
-pub mod ios;
+pub mod plugin;

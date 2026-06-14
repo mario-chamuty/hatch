@@ -19,7 +19,7 @@ mod scripts;
 mod branding;
 mod auth;
 mod git;
-mod ios;
+mod plugin;
 
 use cli::{Cli, Commands, verbosity, CacheCommands};
 
@@ -156,8 +156,11 @@ async fn main() -> Result<()> {
                 CacheCommands::Verify => cli::commands::cache::verify().await,
             }
         }
-        Commands::Ios { subcommand } => {
-            cli::commands::ios::execute(subcommand).await
+        Commands::Plugin { subcommand } => {
+            cli::commands::plugin::execute(subcommand).await
+        }
+        Commands::External(argv) => {
+            plugin::dispatch(argv).await
         }
     }
 }

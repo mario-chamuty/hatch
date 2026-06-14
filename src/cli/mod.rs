@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::ffi::OsString;
 
 pub mod commands;
 pub mod args;
@@ -161,110 +162,37 @@ pub enum Commands {
         #[command(subcommand)]
         subcommand: CacheCommands,
     },
-    /// Build & sign iOS apps without a Mac, and manage App Store Connect
-    Ios {
+    /// Manage hatch plugins (external `hatch-<name>` subcommand binaries)
+    Plugin {
         #[command(subcommand)]
-        subcommand: IosCommands,
+        subcommand: PluginCommands,
     },
+
+    /// Any unrecognized subcommand is dispatched to a `hatch-<name>` plugin
+    /// (e.g. `hatch ios build` -> `hatch-ios build`).
+    #[command(external_subcommand)]
+    External(Vec<OsString>),
 }
 
-/// iOS build + signing + App Store Connect management.
+/// Manage external `hatch-<name>` plugin binaries.
 #[derive(Subcommand)]
-pub enum IosCommands {
-    /// Check the iOS build toolchain health
-    Doctor,
-    /// Configure App Store Connect API credentials
-    Auth {
-        /// Browser-assisted setup: open the API Keys page and auto-import the
-        /// downloaded AuthKey_*.p8 (prompts for the issuer ID).
-        #[arg(long)]
-        web: bool,
-        /// Issuer ID (UUID from App Store Connect -> Integrations)
-        #[arg(long)]
-        issuer: Option<String>,
-        /// Key ID (10-char key identifier)
-        #[arg(long)]
-        key_id: Option<String>,
-        /// Path to the AuthKey_<KEYID>.p8 file
-        #[arg(long)]
-        p8: Option<String>,
-        /// Apple Developer Team ID (optional)
-        #[arg(long)]
-        team_id: Option<String>,
-    },
-    /// Download the Flutter engine artifacts for the toolchain
-    Setup {
-        /// Flutter version (defaults to the project's pinned FVM version)
-        #[arg(long)]
-        flutter: Option<String>,
-    },
-    /// Build an .ipa from the current project (no Mac required)
-    Build {
-        /// Bundle identifier (defaults to config / com.example.<name>)
-        #[arg(long)]
-        bundle_id: Option<String>,
-        /// App display name (defaults to pubspec name)
-        #[arg(long)]
-        name: Option<String>,
-        /// Sign the .ipa with the configured certificate + profile
-        #[arg(long)]
-        sign: bool,
-        /// Use a distribution (App Store) profile instead of development
-        #[arg(long)]
-        distribution: bool,
-    },
-    /// Upload a signed .ipa to TestFlight / App Store Connect
-    Publish {
-        /// Path to the .ipa (defaults to the latest signed build in the project)
-        #[arg(long)]
-        ipa: Option<String>,
-    },
-    /// Validate a signed .ipa for App Store upload (no upload, no credentials)
-    Validate {
-        /// Path to the .ipa (defaults to the latest signed build in the project)
-        #[arg(long)]
-        ipa: Option<String>,
-    },
-    /// List apps registered in App Store Connect
-    Apps,
-    /// List registered test devices
-    Devices,
-    /// Register a test device
-    DeviceAdd {
-        /// Device name
-        #[arg(long)]
+pub enum PluginCommands {
+    /// List installed plugins
+    List,
+    /// Show details about an installed plugin
+    Info {
+        /// Plugin name (the `<name>` in `hatch <name>` / `hatch-<name>`)
         name: String,
-        /// Device UDID
-        #[arg(long)]
-        udid: String,
     },
-    /// List signing certificates
-    Certs,
-    /// Generate a signing certificate (key + CSR -> ASC -> .p12)
-    CertCreate {
-        /// Create a distribution certificate instead of development
-        #[arg(long)]
-        distribution: bool,
-        /// Password for the generated .p12 (default: "hatch")
-        #[arg(long)]
-        password: Option<String>,
+    /// Install a plugin from a local executable into ~/.hatch/plugins/bin
+    Install {
+        /// Path to the plugin executable (e.g. target/release/hatch-ios)
+        source: String,
     },
-    /// List provisioning profiles
-    Profiles,
-    /// Create a provisioning profile for a bundle id
-    ProfileCreate {
-        /// Profile name
-        #[arg(long)]
+    /// Remove an installed plugin
+    Remove {
+        /// Plugin name to remove
         name: String,
-        /// Bundle identifier the profile is for
-        #[arg(long)]
-        bundle_id: String,
-        /// Create an App Store distribution profile
-        #[arg(long)]
-        distribution: bool,
-        /// Device UDIDs to include (development profiles); repeatable
-        #[arg(long = "device")]
-        device: Vec<String>,
     },
 }
 

@@ -11,6 +11,10 @@ repository = "https://github.com/mario-chamuty/hatch"
 keywords = ["flutter", "dependency-management", "build-tools", "ios", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
+[workspace]
+members = ["crates/hatch-plugin-api"]
+resolver = "2"
+
 [[bin]]
 name = "hatch"
 path = "src/main.rs"
@@ -18,6 +22,9 @@ path = "src/main.rs"
 [dependencies]
 # CLI and argument parsing
 clap = { version = "4.4", features = ["derive", "color", "suggestions"] }
+
+# Shared plugin contract (manifest schema, config paths, FVM detection)
+hatch-plugin-api = { path = "crates/hatch-plugin-api" }
 
 # Serialization and data handling
 serde = { version = "1.0", features = ["derive"] }
@@ -80,17 +87,9 @@ shell-words = "1"
 petgraph = "0.6"
 rayon = "1"
 
-# iOS: App Store Connect API auth (ES256 JWT) + base64 transport
-jsonwebtoken = "9"
-base64 = "0.22"
-# iOS publish: read the .ipa (zip), build the binary AppStoreInfo.plist, MD5 checksums
-zip = { version = "2", default-features = false, features = ["deflate"] }
-plist = "1.7"
-md-5 = "0.10"
-# iOS Assets.car (native, Mac-free): PNG decode + Apple-reference LZFSE (byte-identical
-# to the `lzfse` CLI used in the proven build-41 transplant path)
-image = { version = "0.24", default-features = false, features = ["png"] }
-lzfse = "0.2"
+# NOTE: the iOS build/sign/publish subsystem (and its deps: jsonwebtoken,
+# base64, zip, plist, md-5, image, lzfse) now lives in the `hatch-ios` plugin
+# (separate repo), dispatched via the plugin subsystem in `src/plugin/`.
 
 [dev-dependencies]
 tempfile = "3.8"

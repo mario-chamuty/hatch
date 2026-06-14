@@ -1,0 +1,15 @@
+[package]
+name = "hatch-plugin-api"
+version = "0.1.0"
+edition = "2021"
+authors = ["Version Two s.r.o. <info@versiontwo.sk>", "Mario Chamuty"]
+license = "MIT OR Apache-2.0"
+description = "Shared contract for hatch CLI plugins: manifest schema + host helpers (config paths, FVM detection)"
+homepage = "https://github.com/mario-chamuty/hatch"
+repository = "https://github.com/mario-chamuty/hatch"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+dirs = "5.0"

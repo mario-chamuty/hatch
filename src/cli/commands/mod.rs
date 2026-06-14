@@ -16,4 +16,4 @@ pub mod version;
 pub mod migrate;
 pub mod sdk_update;
 pub mod cache;
-pub mod ios;
+pub mod plugin;
