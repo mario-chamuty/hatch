@@ -389,6 +389,12 @@ fn stage4_runner(
             }
         }
         plugin_link.extend([
+            // Load ObjC class+category symbols from the static plugin/Firebase
+            // frameworks. Without -ObjC, categories in static libs are dropped,
+            // so e.g. Firebase's NSData (de)compression category used by the
+            // heartbeat payload (`Data.zipped()`) is missing -> `+[NSData ...]:
+            // unrecognized selector` SIGABRT when the (daily) heartbeat fires.
+            "-Xlinker".into(), "-ObjC".into(),
             "-lc++".into(), "-lz".into(), "-lsqlite3".into(),
             "-L".into(), format!("{}/usr/lib/swift", t.sdk),
             "-L".into(), super::plugins::compat_lib_dir(),
@@ -846,31 +852,16 @@ const RUNNER_APPDELEGATE_PLUGINS_M: &str = r#"#import "AppDelegate.h"
   // the Dart entrypoint. Registering against the AppDelegate while using an
   // implicit FlutterViewController engine puts plugin channels on a different
   // messenger -> Firebase.initializeApp()/method channels hang -> black screen.
-  // NSLog markers (subsystem search "[HATCH]") trace the launch in device syslog
-  // so a black screen can be pinpointed to the exact failing step.
-  NSLog(@"[HATCH] didFinishLaunching: enter");
-  @try {
-    _engine = [[FlutterEngine alloc] initWithName:@"io.flutter" project:nil
-                            allowHeadlessExecution:YES];
-    NSLog(@"[HATCH] engine alloc: %@", _engine ? @"ok" : @"NIL");
-    BOOL ran = [_engine run];
-    NSLog(@"[HATCH] engine run: %@", ran ? @"YES" : @"NO (snapshot/entrypoint not found)");
-    [GeneratedPluginRegistrant registerWithRegistry:_engine];
-    NSLog(@"[HATCH] plugins registered");
-    self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    FlutterViewController *flutterViewController =
-        [[FlutterViewController alloc] initWithEngine:_engine nibName:nil bundle:nil];
-    self.window.rootViewController = flutterViewController;
-    [self.window makeKeyAndVisible];
-    NSLog(@"[HATCH] window visible, rootVC=%@", flutterViewController);
-  } @catch (NSException *ex) {
-    NSLog(@"[HATCH] EXCEPTION during launch: %@ - %@", ex.name, ex.reason);
-    @throw;
-  }
-  NSLog(@"[HATCH] calling super didFinishLaunching");
-  BOOL r = [super application:application didFinishLaunchingWithOptions:launchOptions];
-  NSLog(@"[HATCH] super returned %@", r ? @"YES" : @"NO");
-  return r;
+  _engine = [[FlutterEngine alloc] initWithName:@"io.flutter" project:nil
+                          allowHeadlessExecution:YES];
+  [_engine run];
+  [GeneratedPluginRegistrant registerWithRegistry:_engine];
+  self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+  FlutterViewController *flutterViewController =
+      [[FlutterViewController alloc] initWithEngine:_engine nibName:nil bundle:nil];
+  self.window.rootViewController = flutterViewController;
+  [self.window makeKeyAndVisible];
+  return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
 @end
 "#;
