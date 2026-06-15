@@ -16,6 +16,11 @@ pub async fn dispatch(argv: Vec<OsString>) -> Result<()> {
     let name = name_os.to_string_lossy().to_string();
     let rest: Vec<OsString> = it.collect();
 
+    // Best-effort, throttled autoupdate before we hand off. Runs only for
+    // hatch-managed plugins with a remote source, and never blocks or fails the
+    // command (see `update::maybe_auto_update`).
+    super::update::maybe_auto_update(&name).await;
+
     let Some(bin) = find_plugin(&name) else {
         let available = list_plugins();
         let mut msg = format!(

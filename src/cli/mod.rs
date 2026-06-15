@@ -184,10 +184,25 @@ pub enum PluginCommands {
         /// Plugin name (the `<name>` in `hatch <name>` / `hatch-<name>`)
         name: String,
     },
-    /// Install a plugin from a local executable into ~/.hatch/plugins/bin
+    /// Install a plugin from a local path, a GitHub repo, or the tryhatch registry
     Install {
-        /// Path to the plugin executable (e.g. target/release/hatch-ios)
+        /// One of: a local path to the executable; a GitHub repo
+        /// (`owner/repo`, `github:owner/repo`, optional `@tag`); or a registry
+        /// plugin name (`ios`, optional `@version`).
         source: String,
+    },
+    /// Update installed plugins to their latest version from their source
+    Update {
+        /// Plugin name to update; omit with --all to update every plugin
+        name: Option<String>,
+        /// Update all plugins that have a remembered source
+        #[arg(long)]
+        all: bool,
+    },
+    /// Search the tryhatch plugin registry
+    Search {
+        /// Optional query to filter by name/description
+        query: Option<String>,
     },
     /// Remove an installed plugin
     Remove {

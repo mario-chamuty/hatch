@@ -8,6 +8,12 @@
 
 pub mod discovery;
 pub mod dispatch;
+pub mod github;
+pub mod install;
 pub mod manifest;
+pub mod registry;
+pub mod sources;
+pub mod state;
+pub mod update;
 
 pub use dispatch::dispatch;
