@@ -57,8 +57,11 @@ jobs:
             os: ubuntu-latest
             archive: tar.gz
             cross: true
+          # Built on macos-14 (Apple Silicon) which cross-compiles to x86_64
+          # via the universal SDK. The retired macos-13 Intel runner queues
+          # forever with no runner assigned.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-14
             archive: tar.gz
             cross: false
           - target: aarch64-apple-darwin
