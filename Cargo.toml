@@ -1,6 +1,6 @@
 [package]
 name = "hatch"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Version Two s.r.o. <info@versiontwo.sk>", "Mario Chamuty"]
 description = "Fast, Rust-powered dependency and build manager for Flutter, with Mac-free iOS builds"

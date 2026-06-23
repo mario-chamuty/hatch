@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+### Fixed
+
+- Default plugin registry URL corrected from `tryhatch.com` (a parked domain)
+  to `tryhatch.dev`, so `hatch plugin install`/`search` work out of the box.
+  Override with the `HATCH_REGISTRY` environment variable.
+
 ## Unreleased
 
 ### Security

@@ -5,13 +5,13 @@
 //! - `{base}/registry/plugins/{name}.json` — one plugin with its versions and
 //!   per-target download assets (with `sha256` for verification).
 //!
-//! The base URL defaults to `https://tryhatch.com` and is overridable via the
+//! The base URL defaults to `https://tryhatch.dev` and is overridable via the
 //! `HATCH_REGISTRY` environment variable.
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-const DEFAULT_BASE: &str = "https://tryhatch.com";
+const DEFAULT_BASE: &str = "https://tryhatch.dev";
 
 /// The registry base URL (`HATCH_REGISTRY` override, else the default).
 pub fn base_url() -> String {
