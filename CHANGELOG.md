@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+### Features
+
+- **`hatch selfupdate`** — update hatch itself to the latest GitHub release
+  (or a specific `--tag`). Downloads the per-platform asset, verifies it
+  against the release's `SHA256SUMS`, and atomically swaps the running binary
+  (Windows-safe). `--check` reports availability without installing; `--force`
+  reinstalls the current version. Repo overridable via `HATCH_RELEASE_REPO`.
+  Alias: `self-update`.
+
 ## 0.1.1
 
 ### Fixed

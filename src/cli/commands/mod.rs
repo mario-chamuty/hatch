@@ -17,3 +17,4 @@ pub mod migrate;
 pub mod sdk_update;
 pub mod cache;
 pub mod plugin;
+pub mod selfupdate;

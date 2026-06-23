@@ -159,6 +159,9 @@ async fn main() -> Result<()> {
         Commands::Plugin { subcommand } => {
             cli::commands::plugin::execute(subcommand).await
         }
+        Commands::SelfUpdate { check, force, tag } => {
+            cli::commands::selfupdate::execute(check, force, tag).await
+        }
         Commands::External(argv) => {
             plugin::dispatch(argv).await
         }

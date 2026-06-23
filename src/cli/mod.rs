@@ -168,6 +168,20 @@ pub enum Commands {
         subcommand: PluginCommands,
     },
 
+    /// Update hatch itself to the latest GitHub release
+    #[command(name = "selfupdate", visible_alias = "self-update")]
+    SelfUpdate {
+        /// Only check whether a newer release exists; don't install
+        #[arg(long)]
+        check: bool,
+        /// Reinstall even if already on the latest version
+        #[arg(short, long)]
+        force: bool,
+        /// Install a specific release tag (e.g. v0.1.0) instead of the latest
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
     /// Any unrecognized subcommand is dispatched to a `hatch-<name>` plugin
     /// (e.g. `hatch ios build` -> `hatch-ios build`).
     #[command(external_subcommand)]
