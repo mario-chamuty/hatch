@@ -1,0 +1,97 @@
+lockfile_version: 1
+packages:
+  async:
+    version: 2.13.0
+    resolved: pub.dev/async@2.13.0
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  typed_data:
+    version: 1.4.0
+    resolved: pub.dev/typed_data@1.4.0
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  cupertino_icons:
+    version: 1.0.8
+    resolved: pub.dev/cupertino_icons@1.0.8
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  collection:
+    version: 1.19.1
+    resolved: pub.dev/collection@1.19.1
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  meta:
+    version: 1.17.0
+    resolved: pub.dev/meta@1.17.0
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  term_glyph:
+    version: 1.2.2
+    resolved: pub.dev/term_glyph@1.2.2
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  http:
+    version: 0.13.6
+    resolved: pub.dev/http@0.13.6
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  source_span:
+    version: 1.10.1
+    resolved: pub.dev/source_span@1.10.1
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  string_scanner:
+    version: 1.4.1
+    resolved: pub.dev/string_scanner@1.4.1
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  nested:
+    version: 1.0.0
+    resolved: pub.dev/nested@1.0.0
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  provider:
+    version: 6.1.5+1
+    resolved: pub.dev/provider@6.1.5+1
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  path:
+    version: 1.9.1
+    resolved: pub.dev/path@1.9.1
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+  http_parser:
+    version: 4.1.2
+    resolved: pub.dev/http_parser@4.1.2
+    integrity: null
+    dependencies: {}
+    dev: false
+    registry: pub.dev
+flutter_version: 3.35.2
+dart_version: '>=3.5.0 <4.0.0'
+generated_at: 2025-09-26T10:27:47.647196600+00:00
+hatch_version: 0.1.0
